@@ -1,0 +1,12 @@
+linters:
+  enable:
+    - goimports
+    - whitespace
+    - unconvert
+    - promlinter
+    - gofmt
+    # - wrapcheck
+
+linters-settings:
+  goimports:
+    local-prefixes: github.com/onflow/flow-batch-scan
