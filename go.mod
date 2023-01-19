@@ -4,7 +4,7 @@ go 1.19
 
 require (
 	github.com/hashicorp/go-multierror v1.1.1
-	github.com/onflow/cadence v0.28.0
+	github.com/onflow/cadence v0.31.3
 	github.com/onflow/flow-go-sdk v0.29.1
 	github.com/onflow/flow/protobuf/go/flow v0.3.1
 	github.com/prometheus/client_golang v1.14.0
@@ -41,16 +41,17 @@ require (
 	github.com/prometheus/procfs v0.8.0 // indirect
 	github.com/rivo/uniseg v0.4.3 // indirect
 	github.com/stretchr/testify v1.8.1 // indirect
+	github.com/texttheater/golang-levenshtein/levenshtein v0.0.0-20200805054039-cae8b0eaed6c // indirect
 	github.com/turbolent/prettier v0.0.0-20220320183459-661cc755135d // indirect
 	github.com/x448/float16 v0.8.4 // indirect
 	github.com/zeebo/blake3 v0.2.3 // indirect
 	go.opentelemetry.io/otel v1.11.2 // indirect
 	go.uber.org/atomic v1.4.0 // indirect
 	golang.org/x/crypto v0.5.0 // indirect
+	golang.org/x/exp v0.0.0-20221126150942-6ab00d035af9 // indirect
 	golang.org/x/net v0.5.0 // indirect
 	golang.org/x/sys v0.4.0 // indirect
 	golang.org/x/text v0.6.0 // indirect
-	golang.org/x/tools v0.2.0 // indirect
 	golang.org/x/xerrors v0.0.0-20220907171357-04be3eba64a2 // indirect
 	google.golang.org/genproto v0.0.0-20230109162033-3c3c17ce83e6 // indirect
 	google.golang.org/protobuf v1.28.1 // indirect
