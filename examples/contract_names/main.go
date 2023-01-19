@@ -27,15 +27,26 @@ import (
 	"os"
 )
 
+// Script is the Cadence script to be executed on each batch of accounts.
+// The output of the script can in general be any cadence value.
+// In this case we want to know which address has which contract names deployed,
+// so an array of structs is returned.
+//
 //go:embed get_contract_names.cdc
 var Script string
 
 func main() {
+	// Create a logger to output nice looking output to the console.
+	// Some output can also be found on the Debug level.
 	log.Logger = log.
 		Output(zerolog.ConsoleWriter{Out: os.Stderr}).
 		Level(zerolog.InfoLevel)
 
-	flowClient, err := client.NewClient("access.mainnet.nodes.onflow.org:9000", log.Logger)
+	// Create a client to connect to the Flow network.
+	// Any access api would work.
+	// This uses `client.Client` from the flow-batch-scan package, which has some rate limits already set,
+	// and a timeout, in case the network is not responding.
+	flowClient, err := client.NewClient("access.testnet.nodes.onflow.org:9000", log.Logger)
 	defer func() {
 		err := flowClient.Close()
 		if err != nil {
@@ -43,39 +54,59 @@ func main() {
 		}
 	}()
 
+	// Candidate scanners are responsible for catching any accounts
+	// that might have changed since the block the full scan began.
+	// In this case we know that an accounts contracts have changed,
+	// if the flow.AccountContractUpdated event was emitted.
+	// we just need to decode the event to get the address of the account from it.
 	candidateScanners := []candidates.CandidateScanner{
 		candidates.NewAuthorizerCandidatesScanner(log.Logger),
 		candidates.NewEventCandidatesScanner(
 			"flow.AccountContractUpdated",
 			func(event cadence.Event) (flow.Address, error) {
+				// get the address from the event.
 				return flow.BytesToAddress(event.Fields[0].(cadence.Address).Bytes()), nil
 			},
 			log.Logger,
 		),
 	}
 
+	// This is the result handler, that will handle the results from the scripts.
 	scriptResultHandler := NewScriptResultHandler(log.Logger)
 
-	script := []byte(Script)
-	batchSize := 5000 // simple scripts can have a bigger batch size
+	// simple scripts can have a bigger batch size.
+	// because they are faster to execute and use less computation.
+	batchSize := 5000
 
+	// The scanner Will start scanning from the latest sealed block.
+	// It will run a full scan, that will switch to a newer reference block every so often.
+	// It will also run an incremental scanner, that will catch any changes that happened since the full scan started
+	// using the `candidateScanners`.
 	scanner := fbs.NewBlockScanner(
 		flowClient,
 		fbs.WithContext(context.Background()),
-		fbs.WithScript(script),
+		fbs.WithScript([]byte(Script)),
 		fbs.WithCandidateScanners(candidateScanners),
 		fbs.WithScriptResultHandler(scriptResultHandler),
 		fbs.WithBatchSize(batchSize),
-		fbs.WithChainID(flow.Mainnet),
+		fbs.WithChainID(flow.Testnet),
 		fbs.WithLogger(log.Logger),
+
+		// false is actually the default.
+		// This means that once the full scan is done the scanner will stop.
+		// At which point the results will be complete at the `result.LatestScannedBlockHeight`
+		fbs.WithContinuousScan(false),
 	)
 
+	// Start the scanner.
 	result, err := scanner.Scan()
 	if err != nil {
 		log.Fatal().Err(err).Msg("scanner failed")
 	}
+	// `result.ScanIsComplete` would be false if not all accounts were scanned.
+	// Or if the incremental scanner missed any changes.
 	log.Info().
 		Uint64("scan_complete_at_block", result.LatestScannedBlockHeight).
-		Bool("result_accurate", result.ScanIsAccurate).
+		Bool("result_accurate", result.ScanIsComplete).
 		Msg("scanner finished")
 }

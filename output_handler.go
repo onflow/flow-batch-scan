@@ -75,5 +75,6 @@ func (r *ScriptResultProcessor) start(ctx context.Context) {
 }
 
 type ScriptResultHandler interface {
+	// Handle will be called concurrently for each ProcessedAddressBatch.
 	Handle(batch ProcessedAddressBatch) error
 }
