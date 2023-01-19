@@ -30,9 +30,10 @@ type IncrementalScanner struct {
 	addressBatchChan chan<- AddressBatch
 	requestFullScan  chan<- uint64
 
-	latestBlock        uint64
-	latestHandledBlock atomic.Uint64
-	batchSize          int
+	latestBlock             uint64
+	latestHandledBlock      atomic.Uint64
+	pendingIncrementalScans atomic.Int32
+	batchSize               int
 
 	blockCandidateScanners []candidates.CandidateScanner
 
@@ -58,12 +59,13 @@ func NewIncrementalScanner(
 	r := &IncrementalScanner{
 		ComponentBase: NewComponent("incremental_scanner", logger),
 
-		client:             client,
-		addressBatchChan:   addressBatchChan,
-		requestFullScan:    requestBatchChan,
-		latestBlock:        startAtBlock,
-		latestHandledBlock: atomic.Uint64{},
-		batchSize:          batchSize,
+		client:                  client,
+		addressBatchChan:        addressBatchChan,
+		requestFullScan:         requestBatchChan,
+		latestBlock:             startAtBlock,
+		latestHandledBlock:      atomic.Uint64{},
+		pendingIncrementalScans: atomic.Int32{},
+		batchSize:               batchSize,
 
 		blockCandidateScanners: blockCandidateScanners,
 
@@ -137,6 +139,10 @@ func (r *IncrementalScanner) scanBlockRange(ctx context.Context, start uint64, e
 	}
 
 	if len(candidatesResult.Addresses) == 0 {
+		if r.pendingIncrementalScans.Load() == 0 {
+			r.latestHandledBlock.Store(end)
+			r.reporter.ReportIncrementalBlockHeight(end)
+		}
 		return nil
 	}
 
@@ -145,9 +151,6 @@ func (r *IncrementalScanner) scanBlockRange(ctx context.Context, start uint64, e
 		addresses = append(addresses, address)
 	}
 
-	if len(addresses) == 0 {
-		return nil
-	}
 	r.Logger.
 		Info().
 		Int("count", len(addresses)).
@@ -156,6 +159,7 @@ func (r *IncrementalScanner) scanBlockRange(ctx context.Context, start uint64, e
 		Msg("Found candidates in block range.")
 
 	wg := sync.WaitGroup{}
+	r.pendingIncrementalScans.Add(1)
 	for i := 0; i < len(addresses); i += r.batchSize {
 		startIndex := i
 		endIndex := i + r.batchSize
@@ -175,6 +179,7 @@ func (r *IncrementalScanner) scanBlockRange(ctx context.Context, start uint64, e
 
 	go func() {
 		wg.Wait()
+		r.pendingIncrementalScans.Add(-1)
 		r.latestHandledBlock.Store(end)
 		r.reporter.ReportIncrementalBlockHeight(end)
 	}()
