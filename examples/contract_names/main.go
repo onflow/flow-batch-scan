@@ -18,7 +18,7 @@ import (
 	"context"
 	_ "embed"
 	"github.com/onflow/cadence"
-	fbs "github.com/onflow/flow-batch-scan"
+	"github.com/onflow/flow-batch-scan"
 	"github.com/onflow/flow-batch-scan/candidates"
 	"github.com/onflow/flow-batch-scan/client"
 	"github.com/onflow/flow-go-sdk"
@@ -82,24 +82,24 @@ func main() {
 	// It will run a full scan, that will switch to a newer reference block every so often.
 	// It will also run an incremental scanner, that will catch any changes that happened since the full scan started
 	// using the `candidateScanners`.
-	scanner := fbs.NewBlockScanner(
+	scan := scanner.NewScanner(
 		flowClient,
-		fbs.WithContext(context.Background()),
-		fbs.WithScript([]byte(Script)),
-		fbs.WithCandidateScanners(candidateScanners),
-		fbs.WithScriptResultHandler(scriptResultHandler),
-		fbs.WithBatchSize(batchSize),
-		fbs.WithChainID(flow.Testnet),
-		fbs.WithLogger(log.Logger),
+		scanner.WithContext(context.Background()),
+		scanner.WithScript([]byte(Script)),
+		scanner.WithCandidateScanners(candidateScanners),
+		scanner.WithScriptResultHandler(scriptResultHandler),
+		scanner.WithBatchSize(batchSize),
+		scanner.WithChainID(flow.Testnet),
+		scanner.WithLogger(log.Logger),
 
 		// false is actually the default.
 		// This means that once the full scan is done the scanner will stop.
 		// At which point the results will be complete at the `result.LatestScannedBlockHeight`
-		fbs.WithContinuousScan(false),
+		scanner.WithContinuousScan(false),
 	)
 
 	// Start the scanner.
-	result, err := scanner.Scan()
+	result, err := scan.Scan()
 	if err != nil {
 		log.Fatal().Err(err).Msg("scanner failed")
 	}

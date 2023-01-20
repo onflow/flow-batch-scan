@@ -12,10 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package lib
+package scanner
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -23,6 +24,8 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/rs/zerolog"
 )
+
+const DefaultStatusReporterPort = 2112
 
 type StatusReporter interface {
 	ReportIncrementalBlockDiff(diff uint64)
@@ -35,6 +38,8 @@ type statusReporter struct {
 	*ComponentBase
 
 	latestReportedBlockHeight uint64
+	port                      int
+	shouldStartServer         bool
 
 	incBlockDiff     prometheus.Gauge
 	incBlockHeight   prometheus.Counter
@@ -42,26 +47,90 @@ type statusReporter struct {
 	fullScanProgress prometheus.Gauge
 }
 
+type StatusReporterOption = func(*statusReporter)
+
+func WithStatusReporterPort(port int) StatusReporterOption {
+	return func(r *statusReporter) {
+		r.port = port
+	}
+}
+
+func WithStartServer(shouldStartServer bool) StatusReporterOption {
+	return func(r *statusReporter) {
+		r.shouldStartServer = shouldStartServer
+	}
+}
+
+// NewStatusReporter creates a new status reporter that reports the status of the indexer to prometheus.
+// It will start a http server on the given port that exposes the metrics
+// (unless this is disabled for the case where you would want to serve metrics yourself).
+// the prefix is used to prefix all metrics.
+// The status reporter will report:
+// - the incremental block diff (the difference between the last block height handled by the incremental scanner and the current block height)
+// - the incremental block height (the block height last handled by the incremental scanner)
+// - if a full scan is currently running (if it is any data the scanner is tracking is inaccurate)
+// - if a full scan is currently running, the progress of the full scan (from 0 to 1)
 func NewStatusReporter(
 	ctx context.Context,
 	prefix string,
 	logger zerolog.Logger,
+	options ...StatusReporterOption,
 ) StatusReporter {
 	r := &statusReporter{
-		ComponentBase: NewComponent("reporter", logger),
+		ComponentBase:     NewComponent("reporter", logger),
+		port:              DefaultStatusReporterPort,
+		shouldStartServer: true,
 	}
+
+	for _, option := range options {
+		option(r)
+	}
+
 	r.initMetrics(prefix)
 	go r.start(ctx)
 	r.StartupDone()
 	return r
 }
-func (r *statusReporter) start(_ context.Context) {
-	http.Handle("/metrics", promhttp.Handler())
-	err := http.ListenAndServe(":2112", nil)
-	if err != nil {
-		r.Logger.Err(err).Msg("failed to start reporter")
+
+func (r *statusReporter) start(ctx context.Context) {
+	if !r.shouldStartServer {
+		r.startServerless(ctx)
+		return
 	}
-	r.Finish(err)
+	r.startWithServer(ctx)
+}
+
+func (r *statusReporter) startWithServer(ctx context.Context) {
+	r.Logger.Info().
+		Int("port", r.port).
+		Msg("serving /metrics")
+
+	http.Handle("/metrics", promhttp.Handler())
+	server := &http.Server{Addr: fmt.Sprintf(":%d", r.port)}
+	go func() {
+		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			r.Logger.Error().
+				Err(err).
+				Msg("server error")
+		}
+	}()
+
+	<-ctx.Done()
+
+	err := server.Close()
+	if err != nil {
+		r.Logger.Warn().
+			Err(err).
+			Msg("error while closing server")
+	}
+
+	r.Finish(ctx.Err())
+}
+
+// startServerless just wait for the context to be done, so it properly closes the component.
+func (r *statusReporter) startServerless(ctx context.Context) {
+	<-ctx.Done()
+	r.Finish(ctx.Err())
 }
 
 func (r *statusReporter) initMetrics(prefix string) {

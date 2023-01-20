@@ -9,6 +9,7 @@ require (
 	github.com/onflow/flow/protobuf/go/flow v0.3.1
 	github.com/prometheus/client_golang v1.14.0
 	github.com/rs/zerolog v1.28.0
+	github.com/stretchr/testify v1.8.1
 	go.uber.org/ratelimit v0.1.0
 	google.golang.org/grpc v1.51.0
 )
@@ -40,7 +41,6 @@ require (
 	github.com/prometheus/common v0.37.0 // indirect
 	github.com/prometheus/procfs v0.8.0 // indirect
 	github.com/rivo/uniseg v0.4.3 // indirect
-	github.com/stretchr/testify v1.8.1 // indirect
 	github.com/texttheater/golang-levenshtein/levenshtein v0.0.0-20200805054039-cae8b0eaed6c // indirect
 	github.com/turbolent/prettier v0.0.0-20220320183459-661cc755135d // indirect
 	github.com/x448/float16 v0.8.4 // indirect

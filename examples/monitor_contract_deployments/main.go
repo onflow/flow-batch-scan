@@ -18,7 +18,7 @@ import (
 	"context"
 	_ "embed"
 	"github.com/onflow/cadence"
-	fbs "github.com/onflow/flow-batch-scan"
+	"github.com/onflow/flow-batch-scan"
 	"github.com/onflow/flow-batch-scan/candidates"
 	"github.com/onflow/flow-batch-scan/client"
 	"github.com/onflow/flow-go-sdk"
@@ -66,28 +66,28 @@ func main() {
 
 	batchSize := 5000
 
-	scanner := fbs.NewBlockScanner(
+	scan := scanner.NewScanner(
 		flowClient,
-		fbs.WithContext(context.Background()),
-		fbs.WithScript([]byte(Script)),
-		fbs.WithCandidateScanners(candidateScanners),
-		fbs.WithScriptResultHandler(scriptResultHandler),
-		fbs.WithBatchSize(batchSize),
-		fbs.WithChainID(flow.Testnet),
-		fbs.WithLogger(log.Logger),
+		scanner.WithContext(context.Background()),
+		scanner.WithScript([]byte(Script)),
+		scanner.WithCandidateScanners(candidateScanners),
+		scanner.WithScriptResultHandler(scriptResultHandler),
+		scanner.WithBatchSize(batchSize),
+		scanner.WithChainID(flow.Testnet),
+		scanner.WithLogger(log.Logger),
 
 		// This is new.
-		fbs.WithStatusReporter(reporter),
+		scanner.WithStatusReporter(reporter),
 
 		// This example uses a continuous scan, which means that it will keep scanning the chain for changes.
-		fbs.WithContinuousScan(true),
+		scanner.WithContinuousScan(true),
 	)
 
 	// Start the scanner. We don't need to wait for it to finish, because it will keep running.
 	// It is important to note, the while a full-scan is running (either because the scanner was just started,
 	// or because the incremental scan was lagging behind too much), the results of the scanner are not complete/accurate,
 	// there could be accounts that have never been scanned yet, or have changed since the last scan.
-	_, err = scanner.Scan()
+	_, err = scan.Scan()
 	if err != nil {
 		log.Fatal().Err(err).Msg("scanner failed")
 	}

@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package lib
+package scanner
 
 import (
 	"context"
@@ -27,7 +27,7 @@ import (
 	"github.com/onflow/flow-batch-scan/client"
 )
 
-type BlockScanner struct {
+type Scanner struct {
 	ctx                 context.Context
 	client              client.Client
 	script              []byte
@@ -42,67 +42,67 @@ type BlockScanner struct {
 
 const DefaultBatchSize = 1000
 
-type BlockScannerOption = func(*BlockScanner)
+type BlockScannerOption = func(*Scanner)
 
 func WithContext(ctx context.Context) BlockScannerOption {
-	return func(scanner *BlockScanner) {
+	return func(scanner *Scanner) {
 		scanner.ctx = ctx
 	}
 }
 
 func WithScript(script []byte) BlockScannerOption {
-	return func(scanner *BlockScanner) {
+	return func(scanner *Scanner) {
 		scanner.script = script
 	}
 }
 
 func WithScriptResultHandler(handler ScriptResultHandler) BlockScannerOption {
-	return func(scanner *BlockScanner) {
+	return func(scanner *Scanner) {
 		scanner.scriptResultHandler = handler
 	}
 }
 
 func WithCandidateScanners(candidateScanners []candidates.CandidateScanner) BlockScannerOption {
-	return func(scanner *BlockScanner) {
+	return func(scanner *Scanner) {
 		scanner.candidateScanners = candidateScanners
 	}
 }
 
 func WithBatchSize(batchSize int) BlockScannerOption {
-	return func(scanner *BlockScanner) {
+	return func(scanner *Scanner) {
 		scanner.batchSize = batchSize
 	}
 }
 
 func WithChainID(chainID flow.ChainID) BlockScannerOption {
-	return func(scanner *BlockScanner) {
+	return func(scanner *Scanner) {
 		scanner.chainID = chainID
 	}
 }
 
 func WithStatusReporter(reporter StatusReporter) BlockScannerOption {
-	return func(scanner *BlockScanner) {
+	return func(scanner *Scanner) {
 		scanner.reporter = reporter
 	}
 }
 
 func WithLogger(logger zerolog.Logger) BlockScannerOption {
-	return func(scanner *BlockScanner) {
+	return func(scanner *Scanner) {
 		scanner.logger = logger
 	}
 }
 
 func WithContinuousScan(continuous bool) BlockScannerOption {
-	return func(scanner *BlockScanner) {
+	return func(scanner *Scanner) {
 		scanner.continuousScan = continuous
 	}
 }
 
-func NewBlockScanner(
+func NewScanner(
 	client client.Client,
 	options ...BlockScannerOption,
-) *BlockScanner {
-	scanner := &BlockScanner{
+) *Scanner {
+	scanner := &Scanner{
 		ctx:                 context.Background(),
 		client:              client,
 		script:              []byte(defaultScript),
@@ -129,7 +129,7 @@ type ScanConcluded struct {
 	ScanIsComplete bool
 }
 
-func (scanner *BlockScanner) Scan() (ScanConcluded, error) {
+func (scanner *Scanner) Scan() (ScanConcluded, error) {
 	ctx, cancel := context.WithCancel(scanner.ctx)
 
 	// small buffer so that the pending requests in the buffer don't encounter "state commitment not found" errors.
