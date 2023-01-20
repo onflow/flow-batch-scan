@@ -22,6 +22,7 @@ header:
     - '**/*.yml'
     - '**/*.md'
     - 'LICENSE'
+    - 'NOTICE'
     - '.gitignore'
     - 'go.mod'
     - 'go.sum'
