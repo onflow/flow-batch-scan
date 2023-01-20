@@ -50,12 +50,6 @@ func WithContext(ctx context.Context) BlockScannerOption {
 	}
 }
 
-func WithClient(client client.Client) BlockScannerOption {
-	return func(scanner *BlockScanner) {
-		scanner.client = client
-	}
-}
-
 func WithScript(script []byte) BlockScannerOption {
 	return func(scanner *BlockScanner) {
 		scanner.script = script
@@ -130,9 +124,9 @@ func NewBlockScanner(
 
 type ScanConcluded struct {
 	LatestScannedBlockHeight uint64
-	// ScanIsAccurate is false if a full scan was not completed,
+	// ScanIsComplete is false if a full scan was not completed,
 	// this means some accounts may have stale data, or have been missed all together.
-	ScanIsAccurate bool
+	ScanIsComplete bool
 }
 
 func (scanner *BlockScanner) Scan() (ScanConcluded, error) {
@@ -257,7 +251,7 @@ func (scanner *BlockScanner) Scan() (ScanConcluded, error) {
 
 	return ScanConcluded{
 		LatestScannedBlockHeight: incrementalScanner.LatestHandledBlock(),
-		ScanIsAccurate:           runningFullScan == nil,
+		ScanIsComplete:           runningFullScan == nil,
 	}, merr.ErrorOrNil()
 }
 

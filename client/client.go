@@ -92,11 +92,11 @@ func NewConnection(
 			UnaryClientInterceptor(
 				10,
 				map[string]int{
-					"/flow.access.AccessAPI/GetLatestBlockHeader":       500,
-					"/flow.access.AccessAPI/GetEventsForHeightRange":    500,
-					"/flow.access.AccessAPI/GetBlockByHeight":           500,
-					"/flow.access.AccessAPI/GetCollectionByID":          500,
-					"/flow.access.AccessAPI/GetTransaction":             500,
+					"/flow.access.AccessAPI/GetLatestBlockHeader":       200,
+					"/flow.access.AccessAPI/GetEventsForHeightRange":    200,
+					"/flow.access.AccessAPI/GetBlockByHeight":           200,
+					"/flow.access.AccessAPI/GetCollectionByID":          200,
+					"/flow.access.AccessAPI/GetTransaction":             200,
 					"/flow.access.AccessAPI/ExecuteScriptAtBlockHeight": 10,
 				},
 				30*time.Second,

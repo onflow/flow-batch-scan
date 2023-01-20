@@ -23,7 +23,7 @@ import (
 )
 
 type Record struct {
-	Contracts   []string
+	Contracts   int64
 	BlockHeight uint64
 }
 
@@ -31,29 +31,27 @@ type scriptResultHandler struct {
 	mu *sync.RWMutex
 
 	deployedContracts map[flow.Address]Record
-	logger            zerolog.Logger
+	reporter          *Reporter
+
+	totalDeployedContractCount int64
+
+	logger zerolog.Logger
 }
 
-// NewScriptResultHandler is a simple result handler that prints the results to the log.
-func NewScriptResultHandler(
-	logger zerolog.Logger,
-) fbs.ScriptResultHandler {
+func NewScriptResultHandler(reporter *Reporter, logger zerolog.Logger) fbs.ScriptResultHandler {
 	h := &scriptResultHandler{
 		mu:                &sync.RWMutex{},
 		deployedContracts: map[flow.Address]Record{},
 
-		logger: logger,
+		reporter: reporter,
+		logger:   logger,
 	}
 	return h
 }
 
 func (r *scriptResultHandler) Handle(batch fbs.ProcessedAddressBatch) error {
-	// parse the script result
 	addressContracts := Parse(batch.Result)
 
-	// the script returns only addresses that have contracts.
-	// the fbs.ProcessedAddressBatch contains all addresses that were processed.
-	// so we can get a list of addresses that don't have contracts.
 	addressesWithNoContracts := make(map[flow.Address]struct{}, len(batch.Addresses))
 	for _, address := range batch.Addresses {
 		if _, ok := addressContracts[address]; ok {
@@ -62,55 +60,57 @@ func (r *scriptResultHandler) Handle(batch fbs.ProcessedAddressBatch) error {
 		addressesWithNoContracts[address] = struct{}{}
 	}
 
-	// this will be called for each address that has contracts.
-	// so we need to put a lock on it (or a sync.Map, or use channels, ...)
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	// for each address that has contracts
-	for address, contractNames := range addressContracts {
+	changeInContractCount := int64(0)
 
+	for address, contracts := range addressContracts {
 		// If the record we have saved is from a newer block, don't update it.
 		// This happens if the account is scanned by the incremental scan, before it is scanned by the full scan.
-		if record, ok := r.deployedContracts[address]; ok && record.BlockHeight >= batch.BlockHeight {
-			continue
+		if record, ok := r.deployedContracts[address]; ok {
+			if record.BlockHeight >= batch.BlockHeight {
+				continue
+			}
+			changeInContractCount -= record.Contracts
 		}
+		changeInContractCount += contracts
 
 		r.deployedContracts[address] = Record{
-			Contracts:   contractNames,
+			Contracts:   contracts,
 			BlockHeight: batch.BlockHeight,
 		}
-
-		// Some output to the log, so we can see the results.
-		r.logger.Info().
-			Str("address", address.String()).
-			Strs("contract_names", contractNames).
-			Msg("Address contracts")
 	}
 
 	// for each address that doesn't have contracts
 	for address := range addressesWithNoContracts {
 		// If the record we have saved is from a newer block, don't update it.
-		if record, ok := r.deployedContracts[address]; ok && record.BlockHeight >= batch.BlockHeight {
-			continue
+		if record, ok := r.deployedContracts[address]; ok {
+			if record.BlockHeight >= batch.BlockHeight {
+				continue
+			}
+			changeInContractCount -= record.Contracts
 		}
 		delete(r.deployedContracts, address)
 	}
+	r.totalDeployedContractCount += changeInContractCount
+	r.reporter.ReportContractsDeployed(r.totalDeployedContractCount)
+	r.logger.Info().
+		Int64("contracts_deployed_change", changeInContractCount).
+		Int64("total_contracts_deployed", r.totalDeployedContractCount).
+		Msg("Batch Handled")
 
 	return nil
 }
 
 // Parse parses the script result which is the AccountInfo in get_contract_deployed.cdc struct in this case.
-func Parse(values cadence.Value) map[flow.Address][]string {
-	result := make(map[flow.Address][]string)
+func Parse(values cadence.Value) map[flow.Address]int64 {
+	result := make(map[flow.Address]int64)
 	for _, value := range values.(cadence.Array).Values {
 		s := value.(cadence.Struct)
 		address := flow.BytesToAddress(s.Fields[0].(cadence.Address).Bytes())
-		var contractNames []string
-		for _, name := range s.Fields[1].(cadence.Array).Values {
-			contractNames = append(contractNames, name.(cadence.String).ToGoValue().(string))
-		}
-		result[address] = contractNames
+		value := s.Fields[1].(cadence.Int).Int()
+		result[address] = int64(value)
 	}
 	return result
 }

@@ -28,3 +28,9 @@ Example:
 1. Scanning for contracts deployed on accounts. (see `examples/contracts`)
 2. Scanning for accounts FT or NFT balance.
 3. Scanning for public keys added to accounts.
+
+## Examples
+
+See the `examples` folder, there are a lot of comments in there.
+The `contract_names` example is a one time scan example.
+the `monitoer_contract_deployments` example is a continuous scan example and builds on the `contract_names` example.
