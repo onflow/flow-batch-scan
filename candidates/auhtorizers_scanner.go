@@ -139,10 +139,14 @@ func (s AuthorizerCandidatesScanner) scanTransaction(
 		s.logger.Error().Err(err).Msg("could not get transaction")
 		return NewCandidatesResultError(err)
 	}
+
 	addresses := make(map[flow.Address]struct{}, len(tx.Authorizers))
 	for _, authorizer := range tx.Authorizers {
 		addresses[authorizer] = struct{}{}
 	}
+	addresses[tx.Payer] = struct{}{}
+	addresses[tx.ProposalKey.Address] = struct{}{}
+
 	return NewCandidatesResult(addresses)
 }
 
