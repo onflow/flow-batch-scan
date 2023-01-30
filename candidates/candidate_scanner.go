@@ -49,7 +49,7 @@ func NewCandidatesResultError(err error) CandidatesResult {
 }
 
 func (r *CandidatesResult) MergeWith(r2 CandidatesResult) {
-	utils.MergeInto(r.Addresses, r2.Addresses)
+	r.Addresses = utils.MergeInto(r.Addresses, r2.Addresses)
 	r.err = multierror.Append(r.err, r2.err)
 }
 
