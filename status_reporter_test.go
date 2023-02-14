@@ -36,22 +36,17 @@ func TestServerlessReporterShutsDownProperly(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	reporter := scan.NewStatusReporter(
-		ctx,
 		"test",
 		zerolog.Nop(),
 		scan.WithStartServer(false),
 	)
+	<-reporter.Start(ctx)
 
-	repComp, ok := reporter.(scan.Component)
-	require.True(t, ok)
-
-	<-repComp.Started()
-
-	err := repComp.Err()
+	err := reporter.Err()
 	require.NoError(t, err)
 
 	select {
-	case <-repComp.Done():
+	case <-reporter.Done():
 		require.Fail(t, "reporter should not be done yet")
 	case <-time.After(100 * time.Millisecond):
 		// wait a bit to make sure reporter is not done
@@ -59,9 +54,9 @@ func TestServerlessReporterShutsDownProperly(t *testing.T) {
 
 	cancel()
 
-	<-repComp.Done()
+	<-reporter.Done()
 
-	err = repComp.Err()
+	err = reporter.Err()
 	require.Error(t, err)
 	require.ErrorIs(t, err, context.Canceled)
 }

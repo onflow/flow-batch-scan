@@ -15,8 +15,6 @@
 package main
 
 import (
-	"context"
-
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/rs/zerolog"
@@ -25,16 +23,17 @@ import (
 )
 
 type Reporter struct {
-	scan.StatusReporter
+	*scan.DefaultStatusReporter
 }
+
+var _ scan.Component = (*Reporter)(nil)
 
 func NewReporter(
 	logger zerolog.Logger,
 ) *Reporter {
 	return &Reporter{
 		// this also has the status reporter which already reports some status metrics
-		StatusReporter: scan.NewStatusReporter(
-			context.Background(),
+		DefaultStatusReporter: scan.NewStatusReporter(
 			"monitor_contract_deployments",
 			logger),
 	}

@@ -25,6 +25,31 @@ import (
 	"github.com/onflow/flow-batch-scan/client"
 )
 
+type AddressProviderConfig struct {
+	ExcludeAddress func(id flow.ChainID, address flow.Address) bool
+}
+
+// These Addresses are known to be broken on Mainnet
+var brokenAddresses = map[flow.ChainID]map[flow.Address]struct{}{
+	flow.Mainnet: {
+		flow.HexToAddress("bf48a20670f179b8"): {},
+		flow.HexToAddress("5eba0297874a2bfd"): {},
+		flow.HexToAddress("474ec037bcd8accf"): {},
+		flow.HexToAddress("b0e80595d267f4eb"): {},
+	},
+}
+
+func DefaultExcludeAddress(id flow.ChainID, address flow.Address) bool {
+	_, ok := brokenAddresses[id][address]
+	return ok
+}
+
+func DefaultAddressProviderConfig() AddressProviderConfig {
+	return AddressProviderConfig{
+		ExcludeAddress: DefaultExcludeAddress,
+	}
+}
+
 // AddressProvider Is used to get all the addresses that exists at a certain referenceBlockId
 // this relies on the fact that a certain `endOfAccountsError` will be returned by the
 // `accountStorageUsageScript` if the address doesn't exist yet
@@ -36,6 +61,7 @@ type AddressProvider struct {
 	blockHeight      uint64
 	currentIndex     uint
 	chainID          flow.ChainID
+	config           AddressProviderConfig
 }
 
 const endOfAccountsError = "get storage used failed"
@@ -47,11 +73,13 @@ const accountStorageUsageScript = `
 `
 
 // InitAddressProvider uses bisection to get the last existing address.
-func InitAddressProvider(ctx context.Context,
-	log zerolog.Logger,
+func InitAddressProvider(
+	ctx context.Context,
 	chain flow.ChainID,
 	blockHeight uint64,
 	client client.Client,
+	config AddressProviderConfig,
+	log zerolog.Logger,
 ) (*AddressProvider, error) {
 	ap := &AddressProvider{
 		log:          log.With().Str("component", "address_provider").Logger(),
@@ -59,6 +87,7 @@ func InitAddressProvider(ctx context.Context,
 		blockHeight:  blockHeight,
 		currentIndex: 1,
 		chainID:      chain,
+		config:       config,
 	}
 
 	searchStep := 0
@@ -168,16 +197,6 @@ func (p *AddressProvider) AddressesLen() uint {
 	return p.lastAddressIndex - uint(len(brokenAddresses[p.chainID]))
 }
 
-// These Addresses are known to be broken on Mainnet
-var brokenAddresses = map[flow.ChainID]map[flow.Address]struct{}{
-	flow.Mainnet: {
-		flow.HexToAddress("bf48a20670f179b8"): {},
-		flow.HexToAddress("5eba0297874a2bfd"): {},
-		flow.HexToAddress("474ec037bcd8accf"): {},
-		flow.HexToAddress("b0e80595d267f4eb"): {},
-	},
-}
-
 func (p *AddressProvider) GenerateAddressBatches(addressChan chan<- []flow.Address, batchSize int) {
 	var done bool
 	for !done {
@@ -192,7 +211,7 @@ func (p *AddressProvider) GenerateAddressBatches(addressChan chan<- []flow.Addre
 			}
 
 			// Skip address if known broken
-			if _, ok := brokenAddresses[p.chainID][addr]; ok {
+			if p.config.ExcludeAddress(p.chainID, addr) {
 				i--
 				continue
 			}

@@ -27,7 +27,7 @@ type AddressBatch struct {
 	Addresses    []flow.Address
 	BlockHeight  uint64
 	doneHandling func()
-	isCancelled  func() bool
+	isValid      func() bool
 
 	doneOnce *sync.Once
 }
@@ -42,13 +42,13 @@ func NewAddressBatch(
 	addresses []flow.Address,
 	blockHeight uint64,
 	doneHandling func(),
-	isCancelled func() bool,
+	isValid func() bool,
 ) AddressBatch {
 	return AddressBatch{
 		Addresses:    addresses,
 		BlockHeight:  blockHeight,
 		doneHandling: doneHandling,
-		isCancelled:  isCancelled,
+		isValid:      isValid,
 
 		doneOnce: &sync.Once{},
 	}
@@ -56,7 +56,7 @@ func NewAddressBatch(
 
 // IsValid if the batch is cancelled, it should not be processed.
 func (b *AddressBatch) IsValid() bool {
-	if b.isCancelled != nil && b.isCancelled() {
+	if b.isValid != nil && !b.isValid() {
 		b.DoneHandling()
 		return false
 	}
@@ -79,4 +79,32 @@ func (b *AddressBatch) ExcludeAddress(address flow.Address) {
 			return
 		}
 	}
+}
+
+// Split splits the batch into two batches of equal size.
+func (b *AddressBatch) Split() (AddressBatch, AddressBatch) {
+	leftDone := make(chan struct{})
+	rightDone := make(chan struct{})
+
+	go func() {
+		<-leftDone
+		<-rightDone
+		b.DoneHandling()
+	}()
+
+	left := NewAddressBatch(
+		b.Addresses[:len(b.Addresses)/2],
+		b.BlockHeight,
+		func() {
+			leftDone <- struct{}{}
+		},
+		b.isValid)
+	right := NewAddressBatch(
+		b.Addresses[len(b.Addresses)/2:],
+		b.BlockHeight,
+		func() {
+			rightDone <- struct{}{}
+		},
+		b.isValid)
+	return left, right
 }

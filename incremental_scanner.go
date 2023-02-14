@@ -36,58 +36,60 @@ const IncrementalScannerBlockLag = 5
 // If the gap is larger than this, the incremental scanner will request a full scan.
 const IncrementalScannerMaxBlockGap = 100
 
+type IncrementalScannerConfig struct {
+	CandidateScanners []candidates.CandidateScanner
+}
+
+func DefaultIncrementalScannerConfig() IncrementalScannerConfig {
+	return IncrementalScannerConfig{
+		CandidateScanners: []candidates.CandidateScanner{},
+	}
+}
+
 type IncrementalScanner struct {
 	*ComponentBase
+	IncrementalScannerConfig
 
 	client client.Client
 
 	addressBatchChan chan<- AddressBatch
 	requestFullScan  chan<- uint64
 
+	batchSize               int
 	latestBlock             uint64
 	latestHandledBlock      atomic.Uint64
 	pendingIncrementalScans atomic.Int32
-	batchSize               int
-
-	blockCandidateScanners []candidates.CandidateScanner
 
 	reporter StatusReporter
 }
 
 func NewIncrementalScanner(
-	ctx context.Context,
 	client client.Client,
 
 	addressBatchChan chan<- AddressBatch,
 	requestBatchChan chan<- uint64,
 
-	startAtBlock uint64,
 	batchSize int,
-
-	blockCandidateScanners []candidates.CandidateScanner,
+	config IncrementalScannerConfig,
 
 	reporter StatusReporter,
 	logger zerolog.Logger,
 
 ) *IncrementalScanner {
 	r := &IncrementalScanner{
-		ComponentBase: NewComponent("incremental_scanner", logger),
 
-		client:                  client,
-		addressBatchChan:        addressBatchChan,
-		requestFullScan:         requestBatchChan,
-		latestBlock:             startAtBlock,
-		latestHandledBlock:      atomic.Uint64{},
-		pendingIncrementalScans: atomic.Int32{},
-		batchSize:               batchSize,
-
-		blockCandidateScanners: blockCandidateScanners,
+		client:                   client,
+		addressBatchChan:         addressBatchChan,
+		requestFullScan:          requestBatchChan,
+		latestHandledBlock:       atomic.Uint64{},
+		pendingIncrementalScans:  atomic.Int32{},
+		batchSize:                batchSize,
+		IncrementalScannerConfig: config,
 
 		reporter: reporter,
 	}
 
-	go r.run(ctx)
-	r.StartupDone()
+	r.ComponentBase = NewComponentWithStart("incremental_scanner", r.run, logger)
 	return r
 }
 
@@ -111,7 +113,6 @@ func (r *IncrementalScanner) run(ctx context.Context) {
 func (r *IncrementalScanner) scanNewBlocks(ctx context.Context) error {
 	header, err := r.client.GetLatestBlockHeader(ctx, true)
 	if err != nil {
-		r.Logger.Error().Err(err).Msg("Could not get latest block header.")
 		return err
 	}
 	height := header.Height - IncrementalScannerBlockLag
@@ -202,16 +203,16 @@ func (r *IncrementalScanner) scanBlockRange(ctx context.Context, start uint64, e
 }
 
 func (r *IncrementalScanner) runBlockCandidateScanners(ctx context.Context, start uint64, end uint64) candidates.CandidatesResult {
-	results := make(chan candidates.CandidatesResult, len(r.blockCandidateScanners))
+	results := make(chan candidates.CandidatesResult, len(r.CandidateScanners))
 	defer close(results)
 
-	for _, scanner := range r.blockCandidateScanners {
+	for _, scanner := range r.CandidateScanners {
 		go func(scanner candidates.CandidateScanner) {
 			results <- scanner.Scan(ctx, r.client, candidates.BlockRange{Start: start, End: end})
 		}(scanner)
 	}
 
-	return candidates.WaitForCandidateResults(results, len(r.blockCandidateScanners))
+	return candidates.WaitForCandidateResults(results, len(r.CandidateScanners))
 }
 
 func (r *IncrementalScanner) LatestHandledBlock() uint64 {

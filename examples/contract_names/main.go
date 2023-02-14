@@ -78,28 +78,29 @@ func main() {
 	// because they are faster to execute and use less computation.
 	batchSize := 5000
 
+	config := scanner.DefaultConfig().
+		WithScript([]byte(Script)).
+		WithCandidateScanners(candidateScanners).
+		WithScriptResultHandler(scriptResultHandler).
+		WithBatchSize(batchSize).
+		WithChainID(flow.Testnet).
+		WithLogger(log.Logger).
+		// false is actually the default.
+		// This means that once the full scan is done the scanner will stop.
+		// At which point the results will be complete at the `result.LatestScannedBlockHeight`
+		WithContinuousScan(false)
+
 	// The scanner Will start scanning from the latest sealed block.
 	// It will run a full scan, that will switch to a newer reference block every so often.
 	// It will also run an incremental scanner, that will catch any changes that happened since the full scan started
 	// using the `candidateScanners`.
 	scan := scanner.NewScanner(
 		flowClient,
-		scanner.WithContext(context.Background()),
-		scanner.WithScript([]byte(Script)),
-		scanner.WithCandidateScanners(candidateScanners),
-		scanner.WithScriptResultHandler(scriptResultHandler),
-		scanner.WithBatchSize(batchSize),
-		scanner.WithChainID(flow.Testnet),
-		scanner.WithLogger(log.Logger),
-
-		// false is actually the default.
-		// This means that once the full scan is done the scanner will stop.
-		// At which point the results will be complete at the `result.LatestScannedBlockHeight`
-		scanner.WithContinuousScan(false),
+		config,
 	)
 
 	// Start the scanner.
-	result, err := scan.Scan()
+	result, err := scan.Scan(context.Background())
 	if err != nil {
 		log.Fatal().Err(err).Msg("scanner failed")
 	}

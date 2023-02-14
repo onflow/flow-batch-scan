@@ -27,16 +27,33 @@ import (
 	"github.com/onflow/flow-batch-scan/client"
 )
 
-// ScriptRunnerMaxConcurrentScripts is the maximum number of scripts that can be running concurrently
+// DefaultScriptRunnerMaxConcurrentScripts is the maximum number of scripts that can be running concurrently
 // at any given time. If this is more than the rate limit, some scripts will be just waiting.
 // As long as they don't wait too long, this is not a problem.
-const ScriptRunnerMaxConcurrentScripts = 100
+const DefaultScriptRunnerMaxConcurrentScripts = 20
+
+type ScriptRunnerConfig struct {
+	Script []byte
+
+	MaxConcurrentScripts int
+	HandleScriptError    func(AddressBatch, error) ScriptErrorAction
+}
+
+func DefaultScriptRunnerConfig() ScriptRunnerConfig {
+	return ScriptRunnerConfig{
+		Script: []byte(defaultScript),
+
+		MaxConcurrentScripts: DefaultScriptRunnerMaxConcurrentScripts,
+		HandleScriptError:    DefaultHandleScriptError,
+	}
+}
 
 type ScriptRunner struct {
 	*ComponentBase
 
-	client     client.Client
-	scriptCode []byte
+	ScriptRunnerConfig
+
+	client client.Client
 
 	addressBatchChan <-chan AddressBatch
 	resultsChan      chan<- ProcessedAddressBatch
@@ -47,26 +64,24 @@ type ScriptRunner struct {
 var _ Component = (*ScriptRunner)(nil)
 
 func NewScriptRunner(
-	ctx context.Context,
 	client client.Client,
-	scriptCode []byte,
 	addressBatchChan <-chan AddressBatch,
 	resultsChan chan<- ProcessedAddressBatch,
+	config ScriptRunnerConfig,
 	logger zerolog.Logger,
 ) *ScriptRunner {
 	r := &ScriptRunner{
-		ComponentBase: NewComponent("script_runner", logger),
+
+		ScriptRunnerConfig: config,
 
 		client:           client,
-		scriptCode:       scriptCode,
 		addressBatchChan: addressBatchChan,
 		resultsChan:      resultsChan,
 
-		limitChan: make(chan struct{}, ScriptRunnerMaxConcurrentScripts),
+		limitChan: make(chan struct{}, config.MaxConcurrentScripts),
 	}
+	r.ComponentBase = NewComponentWithStart("script_runner", r.start, logger)
 
-	go r.start(ctx)
-	r.StartupDone()
 	return r
 }
 
@@ -81,87 +96,134 @@ func (r *ScriptRunner) start(ctx context.Context) {
 				r.Finish(nil)
 				return
 			}
-			if !input.IsValid() {
-				return
-			}
 			r.handleBatch(ctx, input)
 		}
 	}
 }
 
 func (r *ScriptRunner) handleBatch(ctx context.Context, input AddressBatch) {
+	if !input.IsValid() {
+		return
+	}
+	if len(input.Addresses) == 0 {
+		input.DoneHandling()
+		return
+	}
+
 	r.limitChan <- struct{}{}
 	go func() {
 		defer func() { <-r.limitChan }()
 
-		result, err := r.retryScriptUntilSuccess(ctx, input)
-		if err != nil {
-			r.Logger.Error().
-				Err(err).
-				Msg("error running script")
+		result, err := r.executeScript(ctx, input)
+
+		if err == nil {
+			r.resultsChan <- ProcessedAddressBatch{
+				AddressBatch: input,
+				Result:       result,
+			}
+			return
+		}
+
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 			r.Finish(err)
 			return
 		}
 
-		r.resultsChan <- ProcessedAddressBatch{
-			AddressBatch: input,
-			Result:       result,
+		r.Logger.
+			Warn().
+			Err(err).
+			Msg("failed to run script")
+
+		action := r.HandleScriptError(input, err)
+
+		switch action := action.(type) {
+		case ScriptErrorActionRetry:
+			// retry the same batch
+			r.Logger.
+				Info().
+				Msg("retrying")
+			go func() {
+				r.handleBatch(ctx, input)
+			}()
+			return
+		case ScriptErrorActionSplit:
+			// split the batch and run each half
+			// this reduces computation usage,
+			// and might also find any errors that are caused by
+			// a single account having problems
+			if len(input.Addresses) != 1 {
+				r.Logger.
+					Info().
+					Int("addresses", len(input.Addresses)).
+					Msg("retrying by splitting")
+				left, right := input.Split()
+				go func() {
+					r.handleBatch(ctx, left)
+					r.handleBatch(ctx, right)
+				}()
+				return
+			}
+			r.Logger.Info().Msg("cannot split, only one address left")
+			// error out
+		case ScriptErrorActionExclude:
+			// exclude the problematic addresses and retry
+			addresses := action.Addresses
+			r.Logger.
+				Info().
+				Strs("addresses", func() []string {
+					r := make([]string, len(addresses))
+					for i, a := range addresses {
+						r[i] = a.String()
+					}
+					return r
+				}()).
+				Msg("retrying by excluding")
+			for _, address := range addresses {
+				input.ExcludeAddress(address)
+			}
+			go func() {
+				r.handleBatch(ctx, input)
+			}()
+			return
+		case ScriptErrorActionNone:
+		// nothing, just continue and error out
+		case ScriptErrorActionUnhandled:
+		// nothing, just continue and error out
+		default:
+			r.Logger.
+				Warn().
+				Interface("action", action).
+				Msg("unknown script error action")
 		}
+
+		r.Logger.Warn().
+			Msg("unable to handle error running script")
+		r.Finish(err)
 	}()
 }
 
 var accountFrozenRegex = regexp.MustCompile(`\[Error Code: 1204] account (?P<address>\w{16}) is frozen`)
 
-// retryScriptUntilSuccess retries running the cadence script until we get a successful response back,
+// executeScript retries running the cadence script until we get a successful response back,
 // returning an array of Balance pairs, along with a boolean representing whether we can continue
 // or are finished processing.
-func (r *ScriptRunner) retryScriptUntilSuccess(
+func (r *ScriptRunner) executeScript(
 	ctx context.Context,
 	input AddressBatch,
 ) (result cadence.Value, err error) {
 	arguments := convertAddressesToArguments(input.Addresses)
-	for {
-		r.Logger.Debug().Msgf("executing script")
+	r.Logger.
+		Debug().
+		Uint64("block_height", input.BlockHeight).
+		Int("num_addresses", len(input.Addresses)).
+		Msgf("executing script")
 
-		result, err = r.client.ExecuteScriptAtBlockHeight(
-			ctx,
-			input.BlockHeight,
-			r.scriptCode,
-			arguments,
-		)
-		if err == nil {
-			break
-		}
-		// Context cancelled
-		if errors.Is(err, context.Canceled) {
-			return nil, err
-		}
-
-		// If the account is frozen, we can skip it
-		if strings.Contains(err.Error(), "[Error Code: 1204]") {
-			addressIndex := accountFrozenRegex.SubexpIndex("address")
-			match := accountFrozenRegex.FindStringSubmatch(err.Error())
-			if match != nil {
-				address := flow.HexToAddress(match[addressIndex])
-				r.Logger.
-					Info().
-					Str("address", address.Hex()).
-					Msg("Excluding frozen address")
-				input.ExcludeAddress(address)
-				arguments = convertAddressesToArguments(input.Addresses)
-				continue
-			}
-		}
-
-		// non retryable error
-		if strings.Contains(err.Error(), "state commitment not found") {
-			return nil, err
-		}
-
-		r.Logger.Warn().Msgf("received unknown error, retrying: %s", err.Error())
-	}
-
-	return result, nil
+	return r.client.ExecuteScriptAtBlockHeight(
+		ctx,
+		input.BlockHeight,
+		r.Script,
+		arguments,
+	)
 }
 
 // convertAddressesToArguments generates an array of cadence.Value from an array of flow.Address
@@ -171,4 +233,65 @@ func convertAddressesToArguments(addresses []flow.Address) []cadence.Value {
 		accounts = append(accounts, cadence.Address(address))
 	}
 	return []cadence.Value{cadence.NewArray(accounts)}
+}
+
+type ScriptErrorAction interface {
+	isScriptErrorAction()
+}
+
+type ScriptErrorActionRetry struct{}
+
+var _ ScriptErrorAction = ScriptErrorActionRetry{}
+
+func (s ScriptErrorActionRetry) isScriptErrorAction() {}
+
+type ScriptErrorActionNone struct{}
+
+var _ ScriptErrorAction = ScriptErrorActionNone{}
+
+func (s ScriptErrorActionNone) isScriptErrorAction() {}
+
+type ScriptErrorActionUnhandled struct{}
+
+var _ ScriptErrorAction = ScriptErrorActionUnhandled{}
+
+func (s ScriptErrorActionUnhandled) isScriptErrorAction() {}
+
+type ScriptErrorActionSplit struct{}
+
+var _ ScriptErrorAction = ScriptErrorActionSplit{}
+
+func (s ScriptErrorActionSplit) isScriptErrorAction() {}
+
+type ScriptErrorActionExclude struct {
+	Addresses []flow.Address
+}
+
+var _ ScriptErrorAction = ScriptErrorActionExclude{}
+
+func (s ScriptErrorActionExclude) isScriptErrorAction() {}
+
+func DefaultHandleScriptError(_ AddressBatch, err error) ScriptErrorAction {
+	if errors.Is(err, context.Canceled) {
+		return ScriptErrorActionNone{}
+	}
+
+	if strings.Contains(err.Error(), "state commitment not found") {
+		return ScriptErrorActionNone{}
+	}
+
+	// If the account is frozen, we can skip it
+	if strings.Contains(err.Error(), "[Error Code: 1204]") {
+		addressIndex := accountFrozenRegex.SubexpIndex("address")
+		match := accountFrozenRegex.FindStringSubmatch(err.Error())
+		if match != nil {
+			address := flow.HexToAddress(match[addressIndex])
+
+			return ScriptErrorActionExclude{
+				Addresses: []flow.Address{address},
+			}
+		}
+	}
+
+	return ScriptErrorActionUnhandled{}
 }

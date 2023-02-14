@@ -22,6 +22,8 @@ import (
 	"github.com/rs/zerolog"
 	"google.golang.org/grpc/credentials/insecure"
 
+	"github.com/onflow/flow-batch-scan/client/interceptors"
+
 	"github.com/onflow/cadence/encoding/json"
 	protoAccess "github.com/onflow/flow/protobuf/go/flow/access"
 	"google.golang.org/grpc"
@@ -86,10 +88,13 @@ func NewConnection(
 		target,
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
 		grpc.WithDefaultCallOptions(
-			grpc.MaxCallRecvMsgSize(16*1024*1024),
+			grpc.MaxCallRecvMsgSize(1024*1024*1024),
 		),
-		grpc.WithUnaryInterceptor(
-			UnaryClientInterceptor(
+		grpc.WithChainUnaryInterceptor(
+			interceptors.UnpackCancelledUnaryClientInterceptor(),
+			interceptors.LogUnaryClientInterceptor(logger),
+			interceptors.RetryUnaryClientInterceptor(3),
+			interceptors.RateLimitUnaryClientInterceptor(
 				10,
 				map[string]int{
 					"/flow.access.AccessAPI/GetLatestBlockHeader":       200,
@@ -99,9 +104,11 @@ func NewConnection(
 					"/flow.access.AccessAPI/GetTransaction":             200,
 					"/flow.access.AccessAPI/ExecuteScriptAtBlockHeight": 10,
 				},
-				30*time.Second,
 				logger,
 			),
+			// timeout per retried request, not per call
+			// timout is after waiting for rate limit
+			interceptors.TimeoutUnaryClientInterceptor(60*time.Second),
 		),
 	)
 }

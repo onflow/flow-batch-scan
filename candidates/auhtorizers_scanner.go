@@ -16,6 +16,7 @@ package candidates
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"time"
 
@@ -81,10 +82,12 @@ func (s AuthorizerCandidatesScanner) scanBlock(
 
 	block, err := client.GetBlockByHeight(ctx, blockHeight)
 	if err != nil {
-		s.logger.Error().
-			Err(err).
-			Uint64("block_height", blockHeight).
-			Msg("Could not get block by height.")
+		if !isCancellationError(err) {
+			s.logger.Error().
+				Err(err).
+				Uint64("block_height", blockHeight).
+				Msg("Could not get block by height.")
+		}
 		return NewCandidatesResultError(err)
 	}
 
@@ -107,7 +110,7 @@ func (s AuthorizerCandidatesScanner) scanCollection(
 ) CandidatesResult {
 	coll, err := s.GetCollection(client, ctx, collectionID)
 	if err != nil {
-		if err != context.Canceled {
+		if !isCancellationError(err) {
 			s.logger.Error().
 				Err(err).
 				Str("collection_id", collectionID.Hex()).
@@ -136,7 +139,9 @@ func (s AuthorizerCandidatesScanner) scanTransaction(
 ) CandidatesResult {
 	tx, err := client.GetTransaction(ctx, TransactionId)
 	if err != nil {
-		s.logger.Error().Err(err).Msg("could not get transaction")
+		if !isCancellationError(err) {
+			s.logger.Error().Err(err).Msg("could not get transaction")
+		}
 		return NewCandidatesResultError(err)
 	}
 
@@ -167,4 +172,8 @@ func (s AuthorizerCandidatesScanner) GetCollection(
 		}
 		return
 	}
+}
+
+func isCancellationError(err error) bool {
+	return errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)
 }
