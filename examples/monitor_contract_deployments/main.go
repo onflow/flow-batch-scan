@@ -30,7 +30,7 @@ import (
 //go:embed get_contract_deployed.cdc
 var Script string
 
-// This is a very similar example to the contract_names example. Pleas see that one first.
+// This is a very similar example to the contract_names example. Please see that one first.
 func main() {
 	log.Logger = log.
 		Output(zerolog.ConsoleWriter{Out: os.Stderr}).
@@ -66,28 +66,28 @@ func main() {
 
 	batchSize := 5000
 
+	config := scanner.DefaultConfig().
+		WithScript([]byte(Script)).
+		WithCandidateScanners(candidateScanners).
+		WithScriptResultHandler(scriptResultHandler).
+		WithBatchSize(batchSize).
+		WithChainID(flow.Testnet).
+		WithLogger(log.Logger).
+		// This is new.
+		WithStatusReporter(reporter).
+		// This example uses a continuous scan, which means that it will keep scanning the chain for changes.
+		WithContinuousScan(true)
+
 	scan := scanner.NewScanner(
 		flowClient,
-		scanner.WithContext(context.Background()),
-		scanner.WithScript([]byte(Script)),
-		scanner.WithCandidateScanners(candidateScanners),
-		scanner.WithScriptResultHandler(scriptResultHandler),
-		scanner.WithBatchSize(batchSize),
-		scanner.WithChainID(flow.Testnet),
-		scanner.WithLogger(log.Logger),
-
-		// This is new.
-		scanner.WithStatusReporter(reporter),
-
-		// This example uses a continuous scan, which means that it will keep scanning the chain for changes.
-		scanner.WithContinuousScan(true),
+		config,
 	)
 
 	// Start the scanner. We don't need to wait for it to finish, because it will keep running.
 	// It is important to note, the while a full-scan is running (either because the scanner was just started,
 	// or because the incremental scan was lagging behind too much), the results of the scanner are not complete/accurate,
 	// there could be accounts that have never been scanned yet, or have changed since the last scan.
-	_, err = scan.Scan()
+	_, err = scan.Scan(context.Background())
 	if err != nil {
 		log.Fatal().Err(err).Msg("scanner failed")
 	}

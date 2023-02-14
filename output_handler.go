@@ -31,21 +31,18 @@ type ScriptResultProcessor struct {
 var _ Component = (*ScriptResultProcessor)(nil)
 
 func NewScriptResultProcessor(
-	ctx context.Context,
 	outChan <-chan ProcessedAddressBatch,
 	handler ScriptResultHandler,
 	logger zerolog.Logger,
 ) *ScriptResultProcessor {
 	r := &ScriptResultProcessor{
-		ComponentBase: NewComponent("script_result_processor", logger),
 
 		scriptResultsChan: outChan,
 
 		handler: handler,
 	}
+	r.ComponentBase = NewComponentWithStart("script_result_processor", r.start, logger)
 
-	go r.start(ctx)
-	r.StartupDone()
 	return r
 }
 

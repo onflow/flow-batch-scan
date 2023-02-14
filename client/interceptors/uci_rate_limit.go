@@ -12,22 +12,19 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package client
+package interceptors
 
 import (
 	"context"
-	"time"
 
 	"github.com/rs/zerolog"
 	"go.uber.org/ratelimit"
-
 	"google.golang.org/grpc"
 )
 
-func UnaryClientInterceptor(
+func RateLimitUnaryClientInterceptor(
 	defaultRateLimit int,
 	methodRateLimits map[string]int,
-	defaultTimeout time.Duration,
 	logger zerolog.Logger,
 ) grpc.UnaryClientInterceptor {
 	limiter := newLimiter(
@@ -44,12 +41,6 @@ func UnaryClientInterceptor(
 		opts ...grpc.CallOption,
 	) error {
 		limiter.Limit(method)
-
-		if defaultTimeout > 0 {
-			ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
-			defer cancel()
-			return invoker(ctx, method, req, reply, cc, opts...)
-		}
 
 		return invoker(ctx, method, req, reply, cc, opts...)
 	}
@@ -77,12 +68,12 @@ func newLimiter(
 	logger zerolog.Logger,
 ) *limiter {
 	l := &limiter{
-		Limiter: ratelimit.New(defaultRate),
+		Limiter: ratelimit.New(defaultRate, ratelimit.WithoutSlack),
 		logger:  logger.With().Str("component", "rate_limiter").Logger(),
 	}
 	l.methodLimiters = make(map[string]ratelimit.Limiter)
 	for method, rate := range methodLimiters {
-		l.methodLimiters[method] = ratelimit.New(rate)
+		l.methodLimiters[method] = ratelimit.New(rate, ratelimit.WithoutSlack)
 	}
 	return l
 }

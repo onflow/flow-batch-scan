@@ -15,6 +15,7 @@
 package scanner
 
 import (
+	"context"
 	"sync"
 
 	"github.com/rs/zerolog"
@@ -23,27 +24,49 @@ import (
 type Component interface {
 	Err() error
 	Done() <-chan struct{}
-	Started() <-chan struct{}
+	Start(ctx context.Context) <-chan struct{}
 }
 
-type ComponentBase struct {
-	doneChan    chan struct{}
-	startedChan chan struct{}
+var _ Component = (*ComponentBase)(nil)
 
-	startedOnce sync.Once
-	doneOnce    sync.Once
-	doneErr     error
+type ComponentBase struct {
+	start       func(ctx context.Context)
+	startedChan chan struct{}
+	startOnce   sync.Once
+
+	doneChan chan struct{}
+	doneOnce sync.Once
+	doneErr  error
 
 	Logger zerolog.Logger
 }
 
-func NewComponent(name string, logger zerolog.Logger) *ComponentBase {
+func NewComponentWithStart(
+	name string,
+	start func(ctx context.Context),
+	logger zerolog.Logger,
+) *ComponentBase {
 	return &ComponentBase{
 		doneChan:    make(chan struct{}, 1),
 		startedChan: make(chan struct{}, 1),
 
+		start: start,
+
 		Logger: logger.With().Str("component", name).Logger(),
 	}
+}
+
+func (c *ComponentBase) Start(ctx context.Context) <-chan struct{} {
+	c.startOnce.Do(func() {
+		go func() {
+			defer close(c.startedChan)
+			go c.start(ctx)
+			c.start = nil
+			c.Logger.Info().Msg("Started")
+		}()
+	})
+
+	return c.startedChan
 }
 
 func (c *ComponentBase) Done() <-chan struct{} {
@@ -52,18 +75,6 @@ func (c *ComponentBase) Done() <-chan struct{} {
 
 func (c *ComponentBase) Err() error {
 	return c.doneErr
-}
-
-func (c *ComponentBase) Started() <-chan struct{} {
-	return c.startedChan
-}
-
-func (c *ComponentBase) StartupDone() {
-	c.startedOnce.Do(func() {
-		c.startedChan <- struct{}{}
-		close(c.startedChan)
-		c.Logger.Info().Msg("Started")
-	})
 }
 
 func (c *ComponentBase) Finish(err error) {

@@ -30,11 +30,26 @@ import (
 
 const FullScanReferenceBlockSwitch = 30 * time.Second
 
+type FullScanRunnerConfig struct {
+	AddressProviderConfig
+
+	ChainID flow.ChainID
+}
+
+func DefaultFullScanRunnerConfig() FullScanRunnerConfig {
+	return FullScanRunnerConfig{
+		AddressProviderConfig: DefaultAddressProviderConfig(),
+
+		ChainID: flow.Testnet,
+	}
+}
+
 type FullScanRunner struct {
 	client           client.Client
 	addressBatchChan chan<- AddressBatch
 	batchSize        int
-	chainID          flow.ChainID
+
+	FullScanRunnerConfig
 
 	logger   zerolog.Logger
 	reporter StatusReporter
@@ -44,35 +59,35 @@ func NewFullScanRunner(
 	client client.Client,
 	addressBatchChan chan<- AddressBatch,
 	batchSize int,
-	chainID flow.ChainID,
+	config FullScanRunnerConfig,
 	reporter StatusReporter,
 	logger zerolog.Logger,
 ) *FullScanRunner {
 	return &FullScanRunner{
-		client:           client,
-		addressBatchChan: addressBatchChan,
-		batchSize:        batchSize,
-		chainID:          chainID,
-		reporter:         reporter,
-		logger:           logger,
+		client:               client,
+		addressBatchChan:     addressBatchChan,
+		batchSize:            batchSize,
+		FullScanRunnerConfig: config,
+		reporter:             reporter,
+		logger:               logger,
 	}
 }
 
-func (r *FullScanRunner) StartBatch(
-	ctx context.Context,
+func (r *FullScanRunner) NewBatch(
 	blockHeight uint64,
 ) *FullScan {
 	batch := &FullScan{
-		ComponentBase: NewComponent(fmt.Sprintf("full_scan_%d", blockHeight), r.logger),
-
 		runner: r,
 
 		blockHeight:              blockHeight,
 		lastReferenceBlockSwitch: time.Now(),
 	}
 
-	go batch.run(ctx)
-	batch.StartupDone()
+	batch.ComponentBase = NewComponentWithStart(
+		fmt.Sprintf("full_scan_%d", blockHeight),
+		batch.run,
+		r.logger)
+
 	return batch
 }
 
@@ -98,7 +113,14 @@ func (r *FullScan) finish(wg *sync.WaitGroup, err error) {
 }
 
 func (r *FullScan) run(ctx context.Context) {
-	ap, err := InitAddressProvider(ctx, r.Logger, r.runner.chainID, r.blockHeight, r.runner.client)
+	ap, err := InitAddressProvider(
+		ctx,
+		r.runner.ChainID,
+		r.blockHeight,
+		r.runner.client,
+		r.runner.AddressProviderConfig,
+		r.Logger,
+	)
 	if err != nil {
 		r.finish(nil, err)
 		return
@@ -109,8 +131,8 @@ func (r *FullScan) run(ctx context.Context) {
 
 	batchWG := &sync.WaitGroup{}
 	cancelled := atomic.Bool{}
-	isBatchCanceled := func() bool {
-		return cancelled.Load()
+	isBatchValid := func() bool {
+		return !cancelled.Load()
 	}
 
 	addressChan := make(chan []flow.Address)
@@ -145,7 +167,7 @@ func (r *FullScan) run(ctx context.Context) {
 						progressChan <- uint64(len(addresses))
 						batchWG.Done()
 					},
-					isBatchCanceled,
+					isBatchValid,
 				)
 			}
 		}

@@ -13,7 +13,7 @@
 # limitations under the License.
 
 .PHONY: fix
-fix: fix-lint fix-licence tidy
+fix: tidy fix-lint fix-licence
 
 .PHONY: fix-lint
 fix-lint:

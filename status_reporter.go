@@ -34,7 +34,7 @@ type StatusReporter interface {
 	ReportFullScanProgress(current uint64, total uint64)
 }
 
-type statusReporter struct {
+type DefaultStatusReporter struct {
 	*ComponentBase
 
 	latestReportedBlockHeight uint64
@@ -45,18 +45,20 @@ type statusReporter struct {
 	incBlockHeight   prometheus.Counter
 	fullScanRunning  prometheus.Gauge
 	fullScanProgress prometheus.Gauge
+
+	prefix string
 }
 
-type StatusReporterOption = func(*statusReporter)
+type StatusReporterOption = func(*DefaultStatusReporter)
 
 func WithStatusReporterPort(port int) StatusReporterOption {
-	return func(r *statusReporter) {
+	return func(r *DefaultStatusReporter) {
 		r.port = port
 	}
 }
 
 func WithStartServer(shouldStartServer bool) StatusReporterOption {
-	return func(r *statusReporter) {
+	return func(r *DefaultStatusReporter) {
 		r.shouldStartServer = shouldStartServer
 	}
 }
@@ -71,28 +73,26 @@ func WithStartServer(shouldStartServer bool) StatusReporterOption {
 // - if a full scan is currently running (if it is any data the scanner is tracking is inaccurate)
 // - if a full scan is currently running, the progress of the full scan (from 0 to 1)
 func NewStatusReporter(
-	ctx context.Context,
 	prefix string,
 	logger zerolog.Logger,
 	options ...StatusReporterOption,
-) StatusReporter {
-	r := &statusReporter{
-		ComponentBase:     NewComponent("reporter", logger),
+) *DefaultStatusReporter {
+	r := &DefaultStatusReporter{
 		port:              DefaultStatusReporterPort,
 		shouldStartServer: true,
+		prefix:            prefix,
 	}
+	r.ComponentBase = NewComponentWithStart("reporter", r.start, logger)
 
 	for _, option := range options {
 		option(r)
 	}
 
-	r.initMetrics(prefix)
-	go r.start(ctx)
-	r.StartupDone()
 	return r
 }
 
-func (r *statusReporter) start(ctx context.Context) {
+func (r *DefaultStatusReporter) start(ctx context.Context) {
+	r.initMetrics(r.prefix)
 	if !r.shouldStartServer {
 		r.startServerless(ctx)
 		return
@@ -100,7 +100,7 @@ func (r *statusReporter) start(ctx context.Context) {
 	r.startWithServer(ctx)
 }
 
-func (r *statusReporter) startWithServer(ctx context.Context) {
+func (r *DefaultStatusReporter) startWithServer(ctx context.Context) {
 	r.Logger.Info().
 		Int("port", r.port).
 		Msg("serving /metrics")
@@ -128,12 +128,12 @@ func (r *statusReporter) startWithServer(ctx context.Context) {
 }
 
 // startServerless just wait for the context to be done, so it properly closes the component.
-func (r *statusReporter) startServerless(ctx context.Context) {
+func (r *DefaultStatusReporter) startServerless(ctx context.Context) {
 	<-ctx.Done()
 	r.Finish(ctx.Err())
 }
 
-func (r *statusReporter) initMetrics(prefix string) {
+func (r *DefaultStatusReporter) initMetrics(prefix string) {
 	r.incBlockDiff = promauto.NewGauge(prometheus.GaugeOpts{
 		Name: prefix + "_inc_block_diff",
 		Help: "The block difference between last incremental check." +
@@ -155,11 +155,11 @@ func (r *statusReporter) initMetrics(prefix string) {
 	})
 }
 
-func (r *statusReporter) ReportIncrementalBlockDiff(diff uint64) {
+func (r *DefaultStatusReporter) ReportIncrementalBlockDiff(diff uint64) {
 	r.incBlockDiff.Set(float64(diff))
 }
 
-func (r *statusReporter) ReportIncrementalBlockHeight(height uint64) {
+func (r *DefaultStatusReporter) ReportIncrementalBlockHeight(height uint64) {
 	if r.latestReportedBlockHeight >= height {
 		return
 	}
@@ -168,7 +168,7 @@ func (r *statusReporter) ReportIncrementalBlockHeight(height uint64) {
 	r.incBlockHeight.Add(float64(diff))
 }
 
-func (r *statusReporter) ReportIsFullScanRunning(running bool) {
+func (r *DefaultStatusReporter) ReportIsFullScanRunning(running bool) {
 	if running {
 		r.fullScanRunning.Set(1)
 	} else {
@@ -176,7 +176,7 @@ func (r *statusReporter) ReportIsFullScanRunning(running bool) {
 	}
 }
 
-func (r *statusReporter) ReportFullScanProgress(current uint64, total uint64) {
+func (r *DefaultStatusReporter) ReportFullScanProgress(current uint64, total uint64) {
 	progress := float64(current) / float64(total)
 	r.fullScanProgress.Set(progress)
 }

@@ -20,103 +20,22 @@ import (
 	"sync"
 
 	"github.com/hashicorp/go-multierror"
-	"github.com/onflow/flow-go-sdk"
-	"github.com/rs/zerolog"
 
-	"github.com/onflow/flow-batch-scan/candidates"
 	"github.com/onflow/flow-batch-scan/client"
 )
 
 type Scanner struct {
-	ctx                 context.Context
-	client              client.Client
-	script              []byte
-	scriptResultHandler ScriptResultHandler
-	candidateScanners   []candidates.CandidateScanner
-	batchSize           int
-	chainID             flow.ChainID
-	continuousScan      bool
-	reporter            StatusReporter
-	logger              zerolog.Logger
-}
-
-const DefaultBatchSize = 1000
-
-type BlockScannerOption = func(*Scanner)
-
-func WithContext(ctx context.Context) BlockScannerOption {
-	return func(scanner *Scanner) {
-		scanner.ctx = ctx
-	}
-}
-
-func WithScript(script []byte) BlockScannerOption {
-	return func(scanner *Scanner) {
-		scanner.script = script
-	}
-}
-
-func WithScriptResultHandler(handler ScriptResultHandler) BlockScannerOption {
-	return func(scanner *Scanner) {
-		scanner.scriptResultHandler = handler
-	}
-}
-
-func WithCandidateScanners(candidateScanners []candidates.CandidateScanner) BlockScannerOption {
-	return func(scanner *Scanner) {
-		scanner.candidateScanners = candidateScanners
-	}
-}
-
-func WithBatchSize(batchSize int) BlockScannerOption {
-	return func(scanner *Scanner) {
-		scanner.batchSize = batchSize
-	}
-}
-
-func WithChainID(chainID flow.ChainID) BlockScannerOption {
-	return func(scanner *Scanner) {
-		scanner.chainID = chainID
-	}
-}
-
-func WithStatusReporter(reporter StatusReporter) BlockScannerOption {
-	return func(scanner *Scanner) {
-		scanner.reporter = reporter
-	}
-}
-
-func WithLogger(logger zerolog.Logger) BlockScannerOption {
-	return func(scanner *Scanner) {
-		scanner.logger = logger
-	}
-}
-
-func WithContinuousScan(continuous bool) BlockScannerOption {
-	return func(scanner *Scanner) {
-		scanner.continuousScan = continuous
-	}
+	Config
+	client client.Client
 }
 
 func NewScanner(
 	client client.Client,
-	options ...BlockScannerOption,
+	config Config,
 ) *Scanner {
 	scanner := &Scanner{
-		ctx:                 context.Background(),
-		client:              client,
-		script:              []byte(defaultScript),
-		scriptResultHandler: NoOpScriptResultHandler{},
-		candidateScanners:   []candidates.CandidateScanner{},
-		batchSize:           DefaultBatchSize,
-		chainID:             flow.Mainnet,
-		continuousScan:      false,
-		reporter:            NoOpStatusReporter{},
-		logger:              zerolog.Nop(),
-	}
-
-	for _, option := range options {
-		option(scanner)
+		Config: config,
+		client: client,
 	}
 
 	return scanner
@@ -129,73 +48,70 @@ type ScanConcluded struct {
 	ScanIsComplete bool
 }
 
-func (scanner *Scanner) Scan() (ScanConcluded, error) {
-	ctx, cancel := context.WithCancel(scanner.ctx)
-
+func (scanner *Scanner) Scan(ctx context.Context) (ScanConcluded, error) {
 	// small buffer so that the pending requests in the buffer don't encounter "state commitment not found" errors.
 	scriptRequestChan := make(chan AddressBatch, 10)
+
 	scriptResultChan := make(chan ProcessedAddressBatch, 10000)
 
 	// this channel will be used to request a full scan
 	requestBatchChan := make(chan uint64)
 
 	var components []Component
-	if c, ok := scanner.reporter.(Component); ok {
+	if c, ok := scanner.Reporter.(Component); ok {
 		components = append(components, c)
 	}
-	if c, ok := scanner.scriptResultHandler.(Component); ok {
+	if c, ok := scanner.ScriptResultHandler.(Component); ok {
 		components = append(components, c)
 	}
 
 	incrementalScanner := NewIncrementalScanner(
-		ctx,
 		scanner.client,
 		scriptRequestChan,
 		requestBatchChan,
-		0,
-		scanner.batchSize,
-		scanner.candidateScanners,
-		scanner.reporter,
-		scanner.logger,
+		scanner.BatchSize,
+		scanner.IncrementalScannerConfig,
+		scanner.Reporter,
+		scanner.Logger,
 	)
 	components = append(components, incrementalScanner)
 
 	components = append(components,
 		NewScriptRunner(
-			ctx,
 			scanner.client,
-			scanner.script,
 			scriptRequestChan,
 			scriptResultChan,
-			scanner.logger,
+			scanner.ScriptRunnerConfig,
+			scanner.Logger,
 		),
 	)
 	components = append(components,
 		NewScriptResultProcessor(
-			ctx,
 			scriptResultChan,
-			scanner.scriptResultHandler,
-			scanner.logger,
+			scanner.ScriptResultHandler,
+			scanner.Logger,
 		),
 	)
 
 	fullScanRunner := NewFullScanRunner(
 		scanner.client,
 		scriptRequestChan,
-		scanner.batchSize,
-		scanner.chainID,
-		scanner.reporter,
-		scanner.logger,
+		scanner.BatchSize,
+		scanner.FullScanRunnerConfig,
+		scanner.Reporter,
+		scanner.Logger,
 	)
 
+	ctx, cancel := context.WithCancel(ctx)
 	for _, component := range components {
-		<-component.Started()
+		<-component.Start(ctx)
 	}
 
 	type fullScan struct {
 		*FullScan
 		cancel context.CancelFunc
 	}
+
 	continueScan := true
 	var runningFullScan *fullScan
 	go func() {
@@ -203,33 +119,36 @@ func (scanner *Scanner) Scan() (ScanConcluded, error) {
 			switch runningFullScan {
 			case nil:
 
-				scanner.reporter.ReportIsFullScanRunning(false)
+				scanner.Reporter.ReportIsFullScanRunning(false)
 				height := <-requestBatchChan
 				fullScanCtx, cancel := context.WithCancel(ctx)
 				runningFullScan = &fullScan{
-					FullScan: fullScanRunner.StartBatch(fullScanCtx, height),
+					FullScan: fullScanRunner.NewBatch(height),
 					cancel:   cancel,
 				}
+				<-runningFullScan.Start(fullScanCtx)
 
 			default:
-				scanner.reporter.ReportIsFullScanRunning(true)
+				scanner.Reporter.ReportIsFullScanRunning(true)
 				select {
 				case height := <-requestBatchChan:
 					runningFullScan.cancel()
 
 					fullScanCtx, cancel := context.WithCancel(ctx)
 					runningFullScan = &fullScan{
-						FullScan: fullScanRunner.StartBatch(fullScanCtx, height),
+						FullScan: fullScanRunner.NewBatch(height),
 						cancel:   cancel,
 					}
+					<-runningFullScan.Start(fullScanCtx)
+
 				case <-runningFullScan.Done():
 					if runningFullScan.Err() != nil {
 						// TODO: handle error
-						scanner.logger.Fatal().Err(runningFullScan.Err()).Msg("Failed batch")
+						scanner.Logger.Fatal().Err(runningFullScan.Err()).Msg("Failed batch")
 					}
 					runningFullScan.cancel()
 					runningFullScan = nil
-					if !scanner.continuousScan {
+					if !scanner.ContinuousScan {
 						continueScan = false
 					}
 				}
