@@ -4,8 +4,8 @@ go 1.19
 
 require (
 	github.com/hashicorp/go-multierror v1.1.1
-	github.com/onflow/cadence v0.31.3
-	github.com/onflow/flow-go-sdk v0.31.3
+	github.com/onflow/cadence v0.34.0
+	github.com/onflow/flow-go-sdk v0.32.0
 	github.com/onflow/flow/protobuf/go/flow v0.3.1
 	github.com/prometheus/client_golang v1.14.0
 	github.com/rs/zerolog v1.28.0
