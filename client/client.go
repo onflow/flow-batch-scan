@@ -19,6 +19,9 @@ import (
 	"io"
 	"time"
 
+	grpc_prometheus "github.com/grpc-ecosystem/go-grpc-prometheus"
+	"github.com/prometheus/client_golang/prometheus"
+
 	"github.com/rs/zerolog"
 	"google.golang.org/grpc/credentials/insecure"
 
@@ -84,6 +87,27 @@ func NewConnection(
 	target string,
 	logger zerolog.Logger,
 ) (*grpc.ClientConn, error) {
+	return NewConnectionWithInterceptors(target, DefaultClientInterceptors(logger)...)
+}
+
+func NewConnectionWithMetrics(
+	target string,
+	metricsNamespace string,
+	logger zerolog.Logger,
+) (*grpc.ClientConn, error) {
+	inter := DefaultClientInterceptors(logger)
+	inter = append(inter, grpc_prometheus.NewClientMetrics(
+		func(opts *prometheus.CounterOpts) {
+			opts.Namespace = metricsNamespace
+		},
+	).UnaryClientInterceptor())
+	return NewConnectionWithInterceptors(target, inter...)
+}
+
+func NewConnectionWithInterceptors(
+	target string,
+	inter ...grpc.UnaryClientInterceptor,
+) (*grpc.ClientConn, error) {
 	return grpc.Dial(
 		target,
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
@@ -91,26 +115,32 @@ func NewConnection(
 			grpc.MaxCallRecvMsgSize(1024*1024*1024),
 		),
 		grpc.WithChainUnaryInterceptor(
-			interceptors.UnpackCancelledUnaryClientInterceptor(),
-			interceptors.LogUnaryClientInterceptor(logger),
-			interceptors.RetryUnaryClientInterceptor(3),
-			interceptors.RateLimitUnaryClientInterceptor(
-				10,
-				map[string]int{
-					"/flow.access.AccessAPI/GetLatestBlockHeader":       200,
-					"/flow.access.AccessAPI/GetEventsForHeightRange":    200,
-					"/flow.access.AccessAPI/GetBlockByHeight":           200,
-					"/flow.access.AccessAPI/GetCollectionByID":          200,
-					"/flow.access.AccessAPI/GetTransaction":             200,
-					"/flow.access.AccessAPI/ExecuteScriptAtBlockHeight": 10,
-				},
-				logger,
-			),
-			// timeout per retried request, not per call
-			// timout is after waiting for rate limit
-			interceptors.TimeoutUnaryClientInterceptor(60*time.Second),
+			inter...,
 		),
 	)
+}
+
+func DefaultClientInterceptors(logger zerolog.Logger) []grpc.UnaryClientInterceptor {
+	return []grpc.UnaryClientInterceptor{
+		interceptors.UnpackCancelledUnaryClientInterceptor(),
+		interceptors.LogUnaryClientInterceptor(logger),
+		interceptors.RetryUnaryClientInterceptor(3),
+		interceptors.RateLimitUnaryClientInterceptor(
+			10,
+			map[string]int{
+				"/flow.access.AccessAPI/GetLatestBlockHeader":       200,
+				"/flow.access.AccessAPI/GetEventsForHeightRange":    200,
+				"/flow.access.AccessAPI/GetBlockByHeight":           200,
+				"/flow.access.AccessAPI/GetCollectionByID":          200,
+				"/flow.access.AccessAPI/GetTransaction":             200,
+				"/flow.access.AccessAPI/ExecuteScriptAtBlockHeight": 10,
+			},
+			logger,
+		),
+		// timeout per retried request, not per call
+		// timout is after waiting for rate limit
+		interceptors.TimeoutUnaryClientInterceptor(60 * time.Second),
+	}
 }
 
 var _ Client = (*client)(nil)
