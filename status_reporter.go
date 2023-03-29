@@ -46,7 +46,7 @@ type DefaultStatusReporter struct {
 	fullScanRunning  prometheus.Gauge
 	fullScanProgress prometheus.Gauge
 
-	prefix string
+	namespace string
 }
 
 type StatusReporterOption = func(*DefaultStatusReporter)
@@ -66,21 +66,21 @@ func WithStartServer(shouldStartServer bool) StatusReporterOption {
 // NewStatusReporter creates a new status reporter that reports the status of the indexer to prometheus.
 // It will start a http server on the given port that exposes the metrics
 // (unless this is disabled for the case where you would want to serve metrics yourself).
-// the prefix is used to prefix all metrics.
+// the namespace is used to namespace all metrics.
 // The status reporter will report:
 // - the incremental block diff (the difference between the last block height handled by the incremental scanner and the current block height)
 // - the incremental block height (the block height last handled by the incremental scanner)
 // - if a full scan is currently running (if it is any data the scanner is tracking is inaccurate)
 // - if a full scan is currently running, the progress of the full scan (from 0 to 1)
 func NewStatusReporter(
-	prefix string,
+	namespace string,
 	logger zerolog.Logger,
 	options ...StatusReporterOption,
 ) *DefaultStatusReporter {
 	r := &DefaultStatusReporter{
 		port:              DefaultStatusReporterPort,
 		shouldStartServer: true,
-		prefix:            prefix,
+		namespace:         namespace,
 	}
 	r.ComponentBase = NewComponentWithStart(
 		"reporter",
@@ -96,7 +96,7 @@ func NewStatusReporter(
 }
 
 func (r *DefaultStatusReporter) start(ctx context.Context) {
-	r.initMetrics(r.prefix)
+	r.initMetrics(r.namespace)
 	if !r.shouldStartServer {
 		go r.startServerless(ctx)
 		return
@@ -137,25 +137,29 @@ func (r *DefaultStatusReporter) startServerless(ctx context.Context) {
 	r.Finish(ctx.Err())
 }
 
-func (r *DefaultStatusReporter) initMetrics(prefix string) {
+func (r *DefaultStatusReporter) initMetrics(namespace string) {
 	r.incBlockDiff = promauto.NewGauge(prometheus.GaugeOpts{
-		Name: prefix + "_inc_block_diff",
+		Namespace: namespace,
+		Name:      "inc_block_diff",
 		Help: "The block difference between last incremental check." +
 			"If this is to high the incremental scanner will skip to the latest block" +
 			" and a full scan will be StartupDone to catch up.",
 	})
 	r.incBlockHeight = promauto.NewCounter(prometheus.CounterOpts{
-		Name: prefix + "_inc_block_height",
+		Namespace: namespace,
+		Name:      "inc_block_height",
 		Help: "The block height last handled by the incremental scanner. " +
 			"If no batch scanner is running at this moment, all other results are considered accurate at this block height.",
 	})
 	r.fullScanRunning = promauto.NewGauge(prometheus.GaugeOpts{
-		Name: prefix + "_full_scan_running",
-		Help: "If a full scan is currently running. If It is other statistics may not be accurate.",
+		Namespace: namespace,
+		Name:      "full_scan_running",
+		Help:      "If a full scan is currently running. If It is other statistics may not be accurate.",
 	})
 	r.fullScanProgress = promauto.NewGauge(prometheus.GaugeOpts{
-		Name: prefix + "_full_scan_progress",
-		Help: "If a full scan is currently running, this is the progress of the full scan.",
+		Namespace: namespace,
+		Name:      "full_scan_progress",
+		Help:      "If a full scan is currently running, this is the progress of the full scan.",
 	})
 }
 

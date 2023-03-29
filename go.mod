@@ -3,6 +3,7 @@ module github.com/onflow/flow-batch-scan
 go 1.19
 
 require (
+	github.com/grpc-ecosystem/go-grpc-prometheus v1.2.0
 	github.com/hashicorp/go-multierror v1.1.1
 	github.com/onflow/cadence v0.31.3
 	github.com/onflow/flow-go-sdk v0.31.3
