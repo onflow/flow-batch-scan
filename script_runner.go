@@ -80,25 +80,31 @@ func NewScriptRunner(
 
 		limitChan: make(chan struct{}, config.MaxConcurrentScripts),
 	}
-	r.ComponentBase = NewComponentWithStart("script_runner", r.start, logger)
+	r.ComponentBase = NewComponentWithStart(
+		"script_runner",
+		r.start,
+		logger,
+	)
 
 	return r
 }
 
 func (r *ScriptRunner) start(ctx context.Context) {
-	for {
-		select {
-		case <-ctx.Done():
-			r.Finish(ctx.Err())
-			return
-		case input, ok := <-r.addressBatchChan:
-			if !ok {
-				r.Finish(nil)
+	go func() {
+		for {
+			select {
+			case <-ctx.Done():
+				r.Finish(ctx.Err())
 				return
+			case input, ok := <-r.addressBatchChan:
+				if !ok {
+					r.Finish(nil)
+					return
+				}
+				r.handleBatch(ctx, input)
 			}
-			r.handleBatch(ctx, input)
 		}
-	}
+	}()
 }
 
 func (r *ScriptRunner) handleBatch(ctx context.Context, input AddressBatch) {

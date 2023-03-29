@@ -41,34 +41,40 @@ func NewScriptResultProcessor(
 
 		handler: handler,
 	}
-	r.ComponentBase = NewComponentWithStart("script_result_processor", r.start, logger)
+	r.ComponentBase = NewComponentWithStart(
+		"script_result_processor",
+		r.start,
+		logger,
+	)
 
 	return r
 }
 
 func (r *ScriptResultProcessor) start(ctx context.Context) {
-	for {
-		select {
-		case <-ctx.Done():
-			r.Finish(ctx.Err())
-			return
-		case result, ok := <-r.scriptResultsChan:
-			if !ok {
-				r.Finish(nil)
+	go func() {
+		for {
+			select {
+			case <-ctx.Done():
+				r.Finish(ctx.Err())
 				return
-			}
-			if !result.IsValid() {
-				continue
-			}
-			go func(result ProcessedAddressBatch) {
-				err := r.handler.Handle(result)
-				result.DoneHandling()
-				if err != nil {
-					r.Finish(err)
+			case result, ok := <-r.scriptResultsChan:
+				if !ok {
+					r.Finish(nil)
+					return
 				}
-			}(result)
+				if !result.IsValid() {
+					continue
+				}
+				go func(result ProcessedAddressBatch) {
+					err := r.handler.Handle(result)
+					result.DoneHandling()
+					if err != nil {
+						r.Finish(err)
+					}
+				}(result)
+			}
 		}
-	}
+	}()
 }
 
 type ScriptResultHandler interface {
