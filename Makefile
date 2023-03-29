@@ -30,3 +30,7 @@ tidy:
 .PHONY: install-tools
 install-tools:
 	go install github.com/apache/skywalking-eyes/cmd/license-eye@latest
+
+.PHONY: test
+test:
+	go test -v ./...

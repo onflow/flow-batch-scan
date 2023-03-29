@@ -28,21 +28,29 @@ import (
 	"github.com/onflow/flow-batch-scan/client"
 )
 
-// IncrementalScannerBlockLag is the number of blocks the incremental scanner lag behind the latest block from
-// GetLatestBlockHeader. This is to avoid most of the "retry for collection in finalized block" errors.
-const IncrementalScannerBlockLag = 5
+const DefaultIncrementalScannerBlockLag = 5
 
-// IncrementalScannerMaxBlockGap is the maximum number of blocks that can scanned by the incremental scanner.
+// DefaultIncrementalScannerMaxBlockGap is the maximum number of blocks that can scanned by the incremental scanner.
 // If the gap is larger than this, the incremental scanner will request a full scan.
-const IncrementalScannerMaxBlockGap = 100
+const DefaultIncrementalScannerMaxBlockGap = 100
 
 type IncrementalScannerConfig struct {
 	CandidateScanners []candidates.CandidateScanner
+	// IncrementalScannerBlockLag is the number of blocks the incremental scanner lag behind the latest block from
+	// GetLatestBlockHeader. This is to avoid most of the "retry for collection in finalized block" errors.
+	// Another way to avoid them is to always use the same access node.
+	IncrementalScannerBlockLag uint64
+
+	// IncrementalScannerMaxBlockGap is the maximum number of blocks that can scanned by the incremental scanner.
+	// If the gap is larger than this, the incremental scanner will skip ahead and request a full scan.
+	IncrementalScannerMaxBlockGap uint64
 }
 
 func DefaultIncrementalScannerConfig() IncrementalScannerConfig {
 	return IncrementalScannerConfig{
-		CandidateScanners: []candidates.CandidateScanner{},
+		CandidateScanners:             []candidates.CandidateScanner{},
+		IncrementalScannerBlockLag:    DefaultIncrementalScannerBlockLag,
+		IncrementalScannerMaxBlockGap: DefaultIncrementalScannerMaxBlockGap,
 	}
 }
 
@@ -89,25 +97,31 @@ func NewIncrementalScanner(
 		reporter: reporter,
 	}
 
-	r.ComponentBase = NewComponentWithStart("incremental_scanner", r.run, logger)
+	r.ComponentBase = NewComponentWithStart(
+		"incremental_scanner",
+		r.run,
+		logger,
+	)
 	return r
 }
 
 func (r *IncrementalScanner) run(ctx context.Context) {
-	next := time.After(0)
-	for {
-		select {
-		case <-ctx.Done():
-			r.Finish(ctx.Err())
-			return
-		case <-next:
-			next = time.After(2 * time.Second)
-			err := r.scanNewBlocks(ctx)
-			if err != nil {
-				r.Finish(err)
+	go func() {
+		next := time.After(0)
+		for {
+			select {
+			case <-ctx.Done():
+				r.Finish(ctx.Err())
+				return
+			case <-next:
+				next = time.After(2 * time.Second)
+				err := r.scanNewBlocks(ctx)
+				if err != nil {
+					r.Finish(err)
+				}
 			}
 		}
-	}
+	}()
 }
 
 func (r *IncrementalScanner) scanNewBlocks(ctx context.Context) error {
@@ -115,7 +129,7 @@ func (r *IncrementalScanner) scanNewBlocks(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	height := header.Height - IncrementalScannerBlockLag
+	height := header.Height - r.IncrementalScannerBlockLag
 
 	if height <= r.latestBlock {
 		return nil
@@ -123,7 +137,7 @@ func (r *IncrementalScanner) scanNewBlocks(ctx context.Context) error {
 
 	r.reporter.ReportIncrementalBlockDiff(height - r.latestBlock)
 
-	if height-r.latestBlock > IncrementalScannerMaxBlockGap {
+	if height-r.latestBlock > r.IncrementalScannerMaxBlockGap {
 		r.Logger.Info().
 			Uint64("latest_block", r.latestBlock).
 			Uint64("current_block", height).

@@ -41,6 +41,9 @@ type ComponentBase struct {
 	Logger zerolog.Logger
 }
 
+// NewComponentWithStart creates a new component with a start function.
+// The start function will be called when the component is started.
+// The start function should not block.
 func NewComponentWithStart(
 	name string,
 	start func(ctx context.Context),
@@ -60,7 +63,7 @@ func (c *ComponentBase) Start(ctx context.Context) <-chan struct{} {
 	c.startOnce.Do(func() {
 		go func() {
 			defer close(c.startedChan)
-			go c.start(ctx)
+			c.start(ctx)
 			c.start = nil
 			c.Logger.Info().Msg("Started")
 		}()

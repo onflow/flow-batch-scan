@@ -86,7 +86,8 @@ func (r *FullScanRunner) NewBatch(
 	batch.ComponentBase = NewComponentWithStart(
 		fmt.Sprintf("full_scan_%d", blockHeight),
 		batch.run,
-		r.logger)
+		r.logger,
+	)
 
 	return batch
 }
@@ -127,7 +128,7 @@ func (r *FullScan) run(ctx context.Context) {
 	}
 
 	progressChan := make(chan uint64)
-	go r.reportProgress(ap, progressChan)
+	go r.reportProgress(uint64(ap.AddressesLen()), progressChan)
 
 	batchWG := &sync.WaitGroup{}
 	cancelled := atomic.Bool{}
@@ -141,7 +142,6 @@ func (r *FullScan) run(ctx context.Context) {
 		for {
 			select {
 			case <-ctx.Done():
-				r.runner.reporter = nil
 				cancelled.Store(true)
 				r.finish(batchWG, ctx.Err())
 				return
@@ -154,7 +154,6 @@ func (r *FullScan) run(ctx context.Context) {
 				blockSwitchTimeChan = time.After(FullScanReferenceBlockSwitch)
 			case addresses, ok := <-addressChan:
 				if !ok {
-					r.runner.reporter = nil
 					r.finish(batchWG, nil)
 					return
 				}
@@ -179,8 +178,8 @@ func (r *FullScan) run(ctx context.Context) {
 	}()
 }
 
-func (r *FullScan) reportProgress(ap *AddressProvider, progressChan <-chan uint64) {
-	total := uint64(ap.AddressesLen())
+func (r *FullScan) reportProgress(addresses uint64, progressChan <-chan uint64) {
+	total := addresses
 	current := uint64(0)
 	segment := uint64(0)
 	segments := uint64(10)

@@ -82,7 +82,11 @@ func NewStatusReporter(
 		shouldStartServer: true,
 		prefix:            prefix,
 	}
-	r.ComponentBase = NewComponentWithStart("reporter", r.start, logger)
+	r.ComponentBase = NewComponentWithStart(
+		"reporter",
+		r.start,
+		logger,
+	)
 
 	for _, option := range options {
 		option(r)
@@ -94,10 +98,10 @@ func NewStatusReporter(
 func (r *DefaultStatusReporter) start(ctx context.Context) {
 	r.initMetrics(r.prefix)
 	if !r.shouldStartServer {
-		r.startServerless(ctx)
+		go r.startServerless(ctx)
 		return
 	}
-	r.startWithServer(ctx)
+	go r.startWithServer(ctx)
 }
 
 func (r *DefaultStatusReporter) startWithServer(ctx context.Context) {
