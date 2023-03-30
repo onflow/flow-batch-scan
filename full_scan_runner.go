@@ -85,7 +85,7 @@ func (r *FullScanRunner) NewBatch(
 
 	batch.ComponentBase = NewComponentWithStart(
 		fmt.Sprintf("full_scan_%d", blockHeight),
-		batch.run,
+		func(ctx context.Context) { go batch.run(ctx) },
 		r.logger,
 	)
 

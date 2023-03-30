@@ -68,11 +68,92 @@ func NewClientFromConnection(
 	}
 }
 
+type Config struct {
+	Log zerolog.Logger
+
+	DefaultCallOptions []grpc.CallOption
+
+	DefaultRateLimit   int
+	SpecificRateLimits map[string]int
+
+	Timeout time.Duration
+
+	Retries int
+
+	WithMetrics      bool
+	MetricsNamespace string
+}
+
+func DefaultConfig() Config {
+	return Config{
+		Log: zerolog.Nop(),
+		DefaultCallOptions: []grpc.CallOption{
+			grpc.MaxCallRecvMsgSize(1024 * 1024 * 1024),
+		},
+		DefaultRateLimit: 10,
+		SpecificRateLimits: map[string]int{
+			"/flow.access.AccessAPI/GetLatestBlockHeader":       200,
+			"/flow.access.AccessAPI/GetEventsForHeightRange":    200,
+			"/flow.access.AccessAPI/GetBlockByHeight":           200,
+			"/flow.access.AccessAPI/GetCollectionByID":          200,
+			"/flow.access.AccessAPI/GetTransaction":             200,
+			"/flow.access.AccessAPI/ExecuteScriptAtBlockHeight": 10,
+		},
+		Timeout:          60 * time.Second,
+		Retries:          3,
+		WithMetrics:      true,
+		MetricsNamespace: "",
+	}
+}
+
+func (c Config) Interceptors() []grpc.UnaryClientInterceptor {
+	inter := []grpc.UnaryClientInterceptor{
+		interceptors.UnpackCancelledUnaryClientInterceptor(),
+		interceptors.LogUnaryClientInterceptor(c.Log),
+		interceptors.RetryUnaryClientInterceptor(c.Retries),
+		interceptors.RateLimitUnaryClientInterceptor(
+			c.DefaultRateLimit,
+			c.SpecificRateLimits,
+			c.Log,
+		),
+		// timeout per retried request, not per call
+		// timout is after waiting for rate limit
+		interceptors.TimeoutUnaryClientInterceptor(c.Timeout),
+	}
+
+	if c.WithMetrics {
+		metrics := grpc_prometheus.NewClientMetrics(
+			func(opts *prometheus.CounterOpts) {
+				opts.Namespace = c.MetricsNamespace
+			},
+		)
+		metrics.EnableClientHandlingTimeHistogram(
+			func(opts *prometheus.HistogramOpts) {
+				opts.Namespace = c.MetricsNamespace
+			})
+
+		// register to default registry
+		prometheus.DefaultRegisterer.MustRegister(metrics)
+
+		inter = append(inter, metrics.UnaryClientInterceptor())
+	}
+
+	return inter
+}
+
+type Option func(*Config)
+
+func WithLog(log zerolog.Logger) Option {
+	return func(c *Config) {
+		c.Log = log
+	}
+}
+
 func NewClient(
 	target string,
-	logger zerolog.Logger,
+	opts ...Option,
 ) (ClosableClient, error) {
-	conn, err := NewConnection(target, logger)
+	conn, err := NewConnection(target, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -85,62 +166,23 @@ func NewClient(
 
 func NewConnection(
 	target string,
-	logger zerolog.Logger,
+	opts ...Option,
 ) (*grpc.ClientConn, error) {
-	return NewConnectionWithInterceptors(target, DefaultClientInterceptors(logger)...)
-}
+	conf := DefaultConfig()
+	for _, opt := range opts {
+		opt(&conf)
+	}
 
-func NewConnectionWithMetrics(
-	target string,
-	metricsNamespace string,
-	logger zerolog.Logger,
-) (*grpc.ClientConn, error) {
-	inter := DefaultClientInterceptors(logger)
-	inter = append(inter, grpc_prometheus.NewClientMetrics(
-		func(opts *prometheus.CounterOpts) {
-			opts.Namespace = metricsNamespace
-		},
-	).UnaryClientInterceptor())
-	return NewConnectionWithInterceptors(target, inter...)
-}
-
-func NewConnectionWithInterceptors(
-	target string,
-	inter ...grpc.UnaryClientInterceptor,
-) (*grpc.ClientConn, error) {
 	return grpc.Dial(
 		target,
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
 		grpc.WithDefaultCallOptions(
-			grpc.MaxCallRecvMsgSize(1024*1024*1024),
+			conf.DefaultCallOptions...,
 		),
 		grpc.WithChainUnaryInterceptor(
-			inter...,
+			conf.Interceptors()...,
 		),
 	)
-}
-
-func DefaultClientInterceptors(logger zerolog.Logger) []grpc.UnaryClientInterceptor {
-	return []grpc.UnaryClientInterceptor{
-		interceptors.UnpackCancelledUnaryClientInterceptor(),
-		interceptors.LogUnaryClientInterceptor(logger),
-		interceptors.RetryUnaryClientInterceptor(3),
-		interceptors.RateLimitUnaryClientInterceptor(
-			10,
-			map[string]int{
-				"/flow.access.AccessAPI/GetLatestBlockHeader":       200,
-				"/flow.access.AccessAPI/GetEventsForHeightRange":    200,
-				"/flow.access.AccessAPI/GetBlockByHeight":           200,
-				"/flow.access.AccessAPI/GetCollectionByID":          200,
-				"/flow.access.AccessAPI/GetTransaction":             200,
-				"/flow.access.AccessAPI/ExecuteScriptAtBlockHeight": 10,
-			},
-			logger,
-		),
-		// timeout per retried request, not per call
-		// timout is after waiting for rate limit
-		interceptors.TimeoutUnaryClientInterceptor(60 * time.Second),
-	}
 }
 
 var _ Client = (*client)(nil)
