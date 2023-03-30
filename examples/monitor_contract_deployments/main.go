@@ -36,7 +36,13 @@ func main() {
 		Output(zerolog.ConsoleWriter{Out: os.Stderr}).
 		Level(zerolog.InfoLevel)
 
-	flowClient, err := client.NewClient("access.testnet.nodes.onflow.org:9000", log.Logger)
+	flowClient, err := client.NewClient(
+		"access.testnet.nodes.onflow.org:9000",
+		client.WithLog(log.Logger),
+	)
+	if err != nil {
+		log.Fatal().Err(err).Msg("could not create client")
+	}
 	defer func() {
 		err := flowClient.Close()
 		if err != nil {
