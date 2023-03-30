@@ -91,6 +91,10 @@ func main() {
 
 	for true {
 		_, err = scan.Scan(context.Background())
+		if err != nil {
+			log.Error().Err(err).Msg("error running scan")
+			break
+		}
 		log.Logger.Info().Msg("restarting scan")
 	}
 }
