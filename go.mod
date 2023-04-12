@@ -5,7 +5,7 @@ go 1.19
 require (
 	github.com/grpc-ecosystem/go-grpc-prometheus v1.2.0
 	github.com/hashicorp/go-multierror v1.1.1
-	github.com/onflow/cadence v0.31.3
+	github.com/onflow/cadence v0.38.1
 	github.com/onflow/flow-go-sdk v0.31.3
 	github.com/onflow/flow/protobuf/go/flow v0.3.1
 	github.com/prometheus/client_golang v1.14.0
@@ -34,7 +34,7 @@ require (
 	github.com/mattn/go-colorable v0.1.13 // indirect
 	github.com/mattn/go-isatty v0.0.17 // indirect
 	github.com/matttproud/golang_protobuf_extensions v1.0.1 // indirect
-	github.com/onflow/atree v0.4.0 // indirect
+	github.com/onflow/atree v0.5.0 // indirect
 	github.com/onflow/flow-go/crypto v0.24.6 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
@@ -49,7 +49,6 @@ require (
 	go.opentelemetry.io/otel v1.11.2 // indirect
 	go.uber.org/atomic v1.4.0 // indirect
 	golang.org/x/crypto v0.5.0 // indirect
-	golang.org/x/exp v0.0.0-20221126150942-6ab00d035af9 // indirect
 	golang.org/x/net v0.5.0 // indirect
 	golang.org/x/sys v0.4.0 // indirect
 	golang.org/x/text v0.6.0 // indirect
