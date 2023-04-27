@@ -17,12 +17,13 @@ package main
 import (
 	"context"
 	_ "embed"
-	"github.com/onflow/flow-batch-scan"
+	"os"
+
+	scanner "github.com/onflow/flow-batch-scan"
 	"github.com/onflow/flow-batch-scan/client"
 	"github.com/onflow/flow-go-sdk"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
-	"os"
 )
 
 //go:embed load_script.cdc
@@ -35,7 +36,8 @@ const ReportingNamespace = "script_load"
 // It does not do anything with the results.
 // The cadence script is arbitrary but must take a single argument of type [Address].
 func main() {
-	nodeURL := "access.testnet.nodes.onflow.org:9000"
+	nodeURL := "35.206.74.187:9000" // devnethist-42-access-blue
+	// nodeURL := "35.208.135.180:9090" // devnet-archive-testing1-dps-001
 	scriptExecutionRateLimit := 2
 	// number of addresses to send as the script params in each script
 	// if script is timing out this should be reduced
