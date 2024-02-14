@@ -285,6 +285,9 @@ func DefaultHandleScriptError(_ AddressBatch, err error) ScriptErrorAction {
 	if strings.Contains(err.Error(), "state commitment not found") {
 		return ScriptErrorActionNone{}
 	}
+	if strings.Contains(err.Error(), "reference block for this script is not set to a recent block") {
+		return ScriptErrorActionNone{}
+	}
 
 	// If the account is frozen, we can skip it
 	if strings.Contains(err.Error(), "[Error Code: 1204]") {
