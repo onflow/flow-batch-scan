@@ -28,7 +28,7 @@ import (
 	"github.com/onflow/flow-batch-scan/client"
 )
 
-const FullScanReferenceBlockSwitch = 30 * time.Second
+const FullScanReferenceBlockSwitch = 10 * time.Second
 
 type FullScanRunnerConfig struct {
 	AddressProviderConfig

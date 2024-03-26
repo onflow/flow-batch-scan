@@ -80,8 +80,7 @@ type Config struct {
 
 	Retries int
 
-	WithMetrics      bool
-	MetricsNamespace string
+	ClientMetrics *grpc_prometheus.ClientMetrics
 }
 
 func DefaultConfig() Config {
@@ -99,11 +98,23 @@ func DefaultConfig() Config {
 			"/flow.access.AccessAPI/GetTransaction":             200,
 			"/flow.access.AccessAPI/ExecuteScriptAtBlockHeight": 10,
 		},
-		Timeout:          60 * time.Second,
-		Retries:          3,
-		WithMetrics:      true,
-		MetricsNamespace: "",
+		Timeout:       60 * time.Second,
+		Retries:       3,
+		ClientMetrics: DefaultClientMetrics(""),
 	}
+}
+
+func DefaultClientMetrics(namespace string) *grpc_prometheus.ClientMetrics {
+	metrics := grpc_prometheus.NewClientMetrics(
+		func(opts *prometheus.CounterOpts) {
+			opts.Namespace = namespace
+		},
+	)
+	metrics.EnableClientHandlingTimeHistogram(
+		func(opts *prometheus.HistogramOpts) {
+			opts.Namespace = namespace
+		})
+	return metrics
 }
 
 func (c Config) Interceptors() []grpc.UnaryClientInterceptor {
@@ -121,21 +132,10 @@ func (c Config) Interceptors() []grpc.UnaryClientInterceptor {
 		interceptors.TimeoutUnaryClientInterceptor(c.Timeout),
 	}
 
-	if c.WithMetrics {
-		metrics := grpc_prometheus.NewClientMetrics(
-			func(opts *prometheus.CounterOpts) {
-				opts.Namespace = c.MetricsNamespace
-			},
-		)
-		metrics.EnableClientHandlingTimeHistogram(
-			func(opts *prometheus.HistogramOpts) {
-				opts.Namespace = c.MetricsNamespace
-			})
-
+	if c.ClientMetrics != nil {
 		// register to default registry
-		prometheus.DefaultRegisterer.MustRegister(metrics)
-
-		inter = append(inter, metrics.UnaryClientInterceptor())
+		prometheus.DefaultRegisterer.MustRegister(c.ClientMetrics)
+		inter = append(inter, c.ClientMetrics.UnaryClientInterceptor())
 	}
 
 	return inter
