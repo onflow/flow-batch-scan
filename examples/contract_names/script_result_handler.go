@@ -107,10 +107,10 @@ func Parse(values cadence.Value) map[flow.Address][]string {
 	result := make(map[flow.Address][]string)
 	for _, value := range values.(cadence.Array).Values {
 		s := value.(cadence.Struct)
-		address := flow.BytesToAddress(s.Fields[0].(cadence.Address).Bytes())
+		address := flow.BytesToAddress(s.FieldsMappedByName()["address"].(cadence.Address).Bytes())
 		var contractNames []string
-		for _, name := range s.Fields[1].(cadence.Array).Values {
-			contractNames = append(contractNames, name.(cadence.String).ToGoValue().(string))
+		for _, name := range s.FieldsMappedByName()["contracts"].(cadence.Array).Values {
+			contractNames = append(contractNames, (string)(name.(cadence.String)))
 		}
 		result[address] = contractNames
 	}

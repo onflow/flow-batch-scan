@@ -110,8 +110,8 @@ func Parse(values cadence.Value) map[flow.Address]int64 {
 	result := make(map[flow.Address]int64)
 	for _, value := range values.(cadence.Array).Values {
 		s := value.(cadence.Struct)
-		address := flow.BytesToAddress(s.Fields[0].(cadence.Address).Bytes())
-		value := s.Fields[1].(cadence.Int).Int()
+		address := flow.BytesToAddress(s.FieldsMappedByName()["address"].(cadence.Address).Bytes())
+		value := s.FieldsMappedByName()["contracts"].(cadence.Int).Int()
 		result[address] = int64(value)
 	}
 	return result

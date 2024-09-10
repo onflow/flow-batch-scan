@@ -19,6 +19,7 @@ package client
 import (
 	"context"
 	"io"
+	"sync"
 	"time"
 
 	grpc_prometheus "github.com/grpc-ecosystem/go-grpc-prometheus"
@@ -82,7 +83,8 @@ type Config struct {
 
 	Retries int
 
-	ClientMetrics *grpc_prometheus.ClientMetrics
+	ClientMetrics     *grpc_prometheus.ClientMetrics
+	clientMetricsOnce *sync.Once
 }
 
 func DefaultConfig() Config {
@@ -100,9 +102,10 @@ func DefaultConfig() Config {
 			"/flow.access.AccessAPI/GetTransaction":             200,
 			"/flow.access.AccessAPI/ExecuteScriptAtBlockHeight": 10,
 		},
-		Timeout:       60 * time.Second,
-		Retries:       3,
-		ClientMetrics: DefaultClientMetrics(""),
+		Timeout:           60 * time.Second,
+		Retries:           3,
+		ClientMetrics:     DefaultClientMetrics(""),
+		clientMetricsOnce: &sync.Once{},
 	}
 }
 
@@ -135,8 +138,15 @@ func (c Config) Interceptors() []grpc.UnaryClientInterceptor {
 	}
 
 	if c.ClientMetrics != nil {
-		// register to default registry
-		prometheus.DefaultRegisterer.MustRegister(c.ClientMetrics)
+		c.clientMetricsOnce.Do(func() {
+			// register to default registry
+			// TODO handle this case better
+			err := prometheus.DefaultRegisterer.Register(c.ClientMetrics)
+			if err != nil {
+				c.Log.Warn().Err(err).Msg("prometheus registration error")
+			}
+		})
+
 		inter = append(inter, c.ClientMetrics.UnaryClientInterceptor())
 	}
 

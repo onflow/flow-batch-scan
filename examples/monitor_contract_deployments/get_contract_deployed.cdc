@@ -1,14 +1,14 @@
-pub struct AccountInfo {
-    pub(set) var address: Address
-    pub(set) var contracts: Int
+access(all) struct AccountInfo {
+    access(all) var address: Address
+    access(all) var contracts: Int
 
-    init(_ address: Address) {
+    init(_ address: Address, _ contracts: Int) {
         self.address = address
-        self.contracts = 0
+        self.contracts = contracts
     }
 }
 
-pub fun main(addresses: [Address]): [AccountInfo] {
+access(all) fun main(addresses: [Address]): [AccountInfo] {
     let infos: [AccountInfo] = []
     for address in addresses {
         let account = getAccount(address)
@@ -18,8 +18,7 @@ pub fun main(addresses: [Address]): [AccountInfo] {
             continue
         }
 
-        let info = AccountInfo(address)
-        info.contracts = contracts.length
+        let info = AccountInfo(address, contracts.length)
         infos.append(info)
     }
     return infos
