@@ -1,25 +1,28 @@
-pub struct AccountInfo {
-    pub(set) var address: Address
-    pub(set) var contracts: [String]
+access(all) struct AccountInfo {
+    access(all) var address: Address
+    access(all) var contracts: [String]
 
-    init(_ address: Address) {
+    init(_ address: Address, _ contracts: [String]) {
         self.address = address
-        self.contracts = []
+        self.contracts = contracts
     }
 }
 
-pub fun main(addresses: [Address]): [AccountInfo] {
+access(all) fun main(addresses: [Address]): [AccountInfo] {
     let infos: [AccountInfo] = []
     for address in addresses {
         let account = getAccount(address)
-        let contracts = account.contracts.names
+        let contracts: [String] = []
+
+        for c in account.contracts.names {
+            contracts.append(c)
+        }
 
         if contracts.length == 0 {
             continue
         }
 
-        let info = AccountInfo(address)
-        info.contracts = contracts
+        let info = AccountInfo(address, contracts)
         infos.append(info)
     }
     return infos

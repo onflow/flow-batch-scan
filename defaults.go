@@ -17,14 +17,14 @@
 package scanner
 
 const defaultScript = `
-pub struct AccountInfo {
-	pub(set) var address: Address
+access(all) struct AccountInfo {
+	access(all) var address: Address
 	init(_ address: Address) {
 		self.address = address
 	}
 }
 
-pub fun main(addresses: [Address]) [AccountInfo]{ return [] }
+access(all) fun main(addresses: [Address]) [AccountInfo]{ return [] }
 `
 
 type NoOpScriptResultHandler struct{}

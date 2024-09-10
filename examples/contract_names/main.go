@@ -73,7 +73,7 @@ func main() {
 			"flow.AccountContractUpdated",
 			func(event cadence.Event) (flow.Address, error) {
 				// get the address from the event.
-				return flow.BytesToAddress(event.Fields[0].(cadence.Address).Bytes()), nil
+				return flow.BytesToAddress(event.FieldsMappedByName()["address"].(cadence.Address).Bytes()), nil
 			},
 			log.Logger,
 		),
