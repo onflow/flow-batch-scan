@@ -21,7 +21,7 @@ import (
 
 	"github.com/hashicorp/go-multierror"
 
-	"github.com/onflow/flow-batch-scan/utils"
+	"github.com/onflow/flow-batch-scan/internal/sets"
 
 	"github.com/onflow/flow-go-sdk"
 
@@ -51,7 +51,7 @@ func NewCandidatesResultError(err error) CandidatesResult {
 }
 
 func (r *CandidatesResult) MergeWith(r2 CandidatesResult) {
-	r.Addresses = utils.MergeInto(r.Addresses, r2.Addresses)
+	r.Addresses = sets.MergeInto(r.Addresses, r2.Addresses)
 	r.err = multierror.Append(r.err, r2.err)
 }
 
@@ -63,7 +63,7 @@ func (r *CandidatesResult) Err() error {
 }
 
 type CandidateScanner interface {
-	Scan(ctx context.Context, client client.Client, blocks BlockRange) CandidatesResult
+	Scan(ctx context.Context, client client.Client, blockHeight uint64) CandidatesResult
 }
 
 func WaitForCandidateResults(

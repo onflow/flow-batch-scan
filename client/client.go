@@ -19,7 +19,6 @@ package client
 import (
 	"context"
 	"io"
-	"sync"
 	"time"
 
 	grpc_prometheus "github.com/grpc-ecosystem/go-grpc-prometheus"
@@ -46,6 +45,8 @@ type Client interface {
 	GetTransaction(ctx context.Context, txID flow.Identifier) (*flow.Transaction, error)
 	GetEventsForHeightRange(ctx context.Context, query flowgrpc.EventRangeQuery) ([]flow.BlockEvents, error)
 	GetCollection(ctx context.Context, colID flow.Identifier) (*flow.Collection, error)
+	SubscribeBlockDigestsFromLatest(ctx context.Context, blockStatus flow.BlockStatus) (<-chan *flow.BlockDigest, <-chan error, error)
+	SubscribeBlockDigestsFromStartHeight(ctx context.Context, startHeight uint64, blockStatus flow.BlockStatus) (<-chan *flow.BlockDigest, <-chan error, error)
 }
 
 type ClosableClient interface {
@@ -83,8 +84,8 @@ type Config struct {
 
 	Retries int
 
-	ClientMetrics     *grpc_prometheus.ClientMetrics
-	clientMetricsOnce *sync.Once
+	ClientMetrics *grpc_prometheus.ClientMetrics
+	Registry      prometheus.Registerer
 }
 
 func DefaultConfig() Config {
@@ -95,17 +96,20 @@ func DefaultConfig() Config {
 		},
 		DefaultRateLimit: 10,
 		SpecificRateLimits: map[string]int{
-			"/flow.access.AccessAPI/GetLatestBlockHeader":       200,
-			"/flow.access.AccessAPI/GetEventsForHeightRange":    200,
-			"/flow.access.AccessAPI/GetBlockByHeight":           200,
-			"/flow.access.AccessAPI/GetCollectionByID":          200,
-			"/flow.access.AccessAPI/GetTransaction":             200,
-			"/flow.access.AccessAPI/ExecuteScriptAtBlockHeight": 10,
+			"/flow.access.AccessAPI/GetLatestBlockHeader":       50,
+			"/flow.access.AccessAPI/GetEventsForHeightRange":    50,
+			"/flow.access.AccessAPI/GetBlockByHeight":           50,
+			"/flow.access.AccessAPI/GetCollectionByID":          50,
+			"/flow.access.AccessAPI/GetTransaction":             50,
+			"/flow.access.AccessAPI/ExecuteScriptAtBlockHeight": 5,
 		},
-		Timeout:           60 * time.Second,
-		Retries:           3,
-		ClientMetrics:     DefaultClientMetrics(""),
-		clientMetricsOnce: &sync.Once{},
+		Timeout:       60 * time.Second,
+		Retries:       5,
+		ClientMetrics: DefaultClientMetrics(""),
+		// Use a new registry by default to avoid duplicate registration errors
+		// when multiple clients are created. Applications can use WithRegistry
+		// to register metrics with the default registry if needed.
+		Registry: prometheus.NewRegistry(),
 	}
 }
 
@@ -138,14 +142,11 @@ func (c Config) Interceptors() []grpc.UnaryClientInterceptor {
 	}
 
 	if c.ClientMetrics != nil {
-		c.clientMetricsOnce.Do(func() {
-			// register to default registry
-			// TODO handle this case better
-			err := prometheus.DefaultRegisterer.Register(c.ClientMetrics)
-			if err != nil {
-				c.Log.Warn().Err(err).Msg("prometheus registration error")
-			}
-		})
+		// register to the configured registry
+		err := c.Registry.Register(c.ClientMetrics)
+		if err != nil {
+			c.Log.Warn().Err(err).Msg("prometheus registration error")
+		}
 
 		inter = append(inter, c.ClientMetrics.UnaryClientInterceptor())
 	}
@@ -158,6 +159,14 @@ type Option func(*Config)
 func WithLog(log zerolog.Logger) Option {
 	return func(c *Config) {
 		c.Log = log
+	}
+}
+
+// WithRegistry configures the client to register gRPC metrics with the provided registry.
+// If not specified, uses prometheus.DefaultRegisterer.
+func WithRegistry(registry prometheus.Registerer) Option {
+	return func(c *Config) {
+		c.Registry = registry
 	}
 }
 
@@ -185,7 +194,7 @@ func NewConnection(
 		opt(&conf)
 	}
 
-	return grpc.Dial(
+	return grpc.NewClient(
 		target,
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
 		grpc.WithDefaultCallOptions(
@@ -242,4 +251,19 @@ func (c *client) GetCollection(
 	colID flow.Identifier,
 ) (*flow.Collection, error) {
 	return c.BaseClient.GetCollection(ctx, colID)
+}
+
+func (c *client) SubscribeBlockDigestsFromLatest(
+	ctx context.Context,
+	blockStatus flow.BlockStatus,
+) (<-chan *flow.BlockDigest, <-chan error, error) {
+	return c.BaseClient.SubscribeBlockDigestsFromLatest(ctx, blockStatus)
+}
+
+func (c *client) SubscribeBlockDigestsFromStartHeight(
+	ctx context.Context,
+	startHeight uint64,
+	blockStatus flow.BlockStatus,
+) (<-chan *flow.BlockDigest, <-chan error, error) {
+	return c.BaseClient.SubscribeBlockDigestsFromStartHeight(ctx, startHeight, blockStatus)
 }

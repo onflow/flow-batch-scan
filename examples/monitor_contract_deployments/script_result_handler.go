@@ -17,11 +17,13 @@
 package main
 
 import (
+	"sync"
+
 	"github.com/onflow/cadence"
-	fbs "github.com/onflow/flow-batch-scan"
 	"github.com/onflow/flow-go-sdk"
 	"github.com/rs/zerolog"
-	"sync"
+
+	fbs "github.com/onflow/flow-batch-scan/scanner"
 )
 
 type Record struct {
@@ -40,7 +42,7 @@ type scriptResultHandler struct {
 	logger zerolog.Logger
 }
 
-func NewScriptResultHandler(reporter *Reporter, logger zerolog.Logger) fbs.ScriptResultHandler {
+func NewScriptResultHandler(logger zerolog.Logger, reporter *Reporter) fbs.ScriptResultHandler {
 	h := &scriptResultHandler{
 		mu:                &sync.RWMutex{},
 		deployedContracts: map[flow.Address]Record{},

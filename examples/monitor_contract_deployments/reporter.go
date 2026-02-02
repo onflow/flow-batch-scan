@@ -17,37 +17,58 @@
 package main
 
 import (
+	"net/http"
+
 	"github.com/prometheus/client_golang/prometheus"
-	"github.com/prometheus/client_golang/prometheus/promauto"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/rs/zerolog"
 
-	scan "github.com/onflow/flow-batch-scan"
+	scan "github.com/onflow/flow-batch-scan/scanner"
 )
 
+// Reporter combines the scanner's status reporter with custom application metrics.
+// It uses a custom Prometheus registry to isolate metrics.
 type Reporter struct {
-	*scan.DefaultStatusReporter
+	scan.StatusReporter
+	registry *prometheus.Registry
+
+	contractsDeployed prometheus.Gauge
 }
 
-var _ scan.Component = (*Reporter)(nil)
+// NewReporter creates a new reporter that combines library metrics with custom app metrics.
+func NewReporter(logger zerolog.Logger) *Reporter {
+	// Create a custom registry for metric isolation
+	reg := prometheus.NewRegistry()
 
-func NewReporter(
-	logger zerolog.Logger,
-) *Reporter {
-	return &Reporter{
-		// this also has the status reporter which already reports some status metrics
-		DefaultStatusReporter: scan.NewStatusReporter(
-			"monitor_contract_deployments",
-			logger),
-	}
-}
+	// Create the scanner's status reporter with our custom registry
+	// This ensures all scanner metrics are registered to our isolated registry
+	statusReporter := scan.NewStatusReporter(
+		logger,
+		"monitor_contract_deployments",
+		scan.WithRegistry(reg),
+	)
 
-var (
-	contractsDeployed = promauto.NewGauge(prometheus.GaugeOpts{
+	// Define custom application metrics
+	contractsDeployed := prometheus.NewGauge(prometheus.GaugeOpts{
 		Name: "monitor_contract_deployments_contracts_deployed",
 		Help: "The number of deployed contracts.",
 	})
-)
+	reg.MustRegister(contractsDeployed)
 
+	return &Reporter{
+		registry:          reg,
+		StatusReporter:    statusReporter,
+		contractsDeployed: contractsDeployed,
+	}
+}
+
+// Handler returns an HTTP handler that exposes all metrics.
+// Mount this at your preferred metrics endpoint (e.g., /metrics).
+func (r *Reporter) Handler() http.Handler {
+	return promhttp.HandlerFor(r.registry, promhttp.HandlerOpts{})
+}
+
+// ReportContractsDeployed reports the number of deployed contracts.
 func (r *Reporter) ReportContractsDeployed(accounts int64) {
-	contractsDeployed.Set(float64(accounts))
+	r.contractsDeployed.Set(float64(accounts))
 }

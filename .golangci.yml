@@ -1,12 +1,23 @@
+version: "2"
 linters:
   enable:
-    - goimports
-    - whitespace
-    - unconvert
     - promlinter
+    - unconvert
+    - whitespace
+  exclusions:
+    generated: lax
+    presets:
+      - comments
+      - common-false-positives
+      - legacy
+      - std-error-handling
+formatters:
+  enable:
     - gofmt
-    # - wrapcheck
-
-linters-settings:
-  goimports:
-    local-prefixes: github.com/onflow/flow-batch-scan
+    - goimports
+  settings:
+    goimports:
+      local-prefixes:
+        - github.com/onflow/flow-batch-scan
+  exclusions:
+    generated: lax

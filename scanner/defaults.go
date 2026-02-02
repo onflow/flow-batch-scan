@@ -37,9 +37,9 @@ var _ ScriptResultHandler = NoOpScriptResultHandler{}
 
 type NoOpStatusReporter struct{}
 
-func (n NoOpStatusReporter) ReportIncrementalBlockDiff(uint64) {}
-
 func (n NoOpStatusReporter) ReportIncrementalBlockHeight(uint64) {}
+
+func (n NoOpStatusReporter) ReportLatestSealedBlockHeight(uint64) {}
 
 func (n NoOpStatusReporter) ReportIsFullScanRunning(bool) {}
 

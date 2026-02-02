@@ -43,33 +43,9 @@ var _ CandidateScanner = AuthorizerCandidatesScanner{}
 func (s AuthorizerCandidatesScanner) Scan(
 	ctx context.Context,
 	client client.Client,
-	blocks BlockRange,
+	blockHeight uint64,
 ) CandidatesResult {
-	candidatesChan := make(chan CandidatesResult, blocks.End-blocks.Start+1)
-	defer close(candidatesChan)
-
-	blockHeight := blocks.Start
-	for blockHeight <= blocks.End {
-		go func(blockHeight uint64) {
-			candidatesChan <- s.scanBlock(ctx, client, blockHeight)
-		}(blockHeight)
-		blockHeight++
-	}
-
-	candidates := WaitForCandidateResults(candidatesChan, int(blocks.End-blocks.Start+1))
-
-	if candidates.Err() != nil {
-		return candidates
-	}
-
-	s.logger.
-		Debug().
-		Int("count", len(candidates.Addresses)).
-		Uint64("start", blocks.Start).
-		Uint64("end", blocks.End).
-		Msg("Found authorizer candidates")
-
-	return candidates
+	return s.scanBlock(ctx, client, blockHeight)
 }
 
 func (s AuthorizerCandidatesScanner) scanBlock(
@@ -110,7 +86,7 @@ func (s AuthorizerCandidatesScanner) scanCollection(
 	client client.Client,
 	collectionID flow.Identifier,
 ) CandidatesResult {
-	coll, err := s.GetCollection(client, ctx, collectionID)
+	coll, err := s.GetCollection(ctx, client, collectionID)
 	if err != nil {
 		if !isCancellationError(err) {
 			s.logger.Error().
@@ -158,8 +134,8 @@ func (s AuthorizerCandidatesScanner) scanTransaction(
 }
 
 func (s AuthorizerCandidatesScanner) GetCollection(
-	client client.Client,
 	ctx context.Context,
+	client client.Client,
 	id flow.Identifier,
 ) (coll *flow.Collection, err error) {
 	for {

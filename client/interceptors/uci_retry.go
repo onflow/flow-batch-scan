@@ -19,6 +19,7 @@ package interceptors
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/hashicorp/go-multierror"
 	"google.golang.org/grpc"
@@ -49,6 +50,18 @@ func RetryUnaryClientInterceptor(
 		}
 
 		if code == codes.Internal {
+			return true
+		}
+
+		if strings.Contains(err.Error(), "please retry for collection in finalized block") {
+			return true
+		}
+
+		// Retry when start height is greater than last sealed block height.
+		// This is a transient race condition where the node hasn't updated
+		// its last sealed block height yet when we query for events.
+		if code == codes.OutOfRange &&
+			strings.Contains(err.Error(), "is greater than the last sealed block height") {
 			return true
 		}
 

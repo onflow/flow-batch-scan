@@ -14,14 +14,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package utils
+package scanner
 
-func MergeInto[K comparable, V any](dest map[K]V, from map[K]V) map[K]V {
-	if dest == nil {
-		dest = make(map[K]V)
-	}
-	for k, v := range from {
-		dest[k] = v
-	}
-	return dest
+// FullScanRequest is emitted when a full scan should be started at the given block height.
+type FullScanRequest struct {
+	BlockHeight uint64
 }

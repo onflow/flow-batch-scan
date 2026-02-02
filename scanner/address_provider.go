@@ -77,11 +77,11 @@ const accountStorageUsageScript = `
 // InitAddressProvider uses bisection to get the last existing address.
 func InitAddressProvider(
 	ctx context.Context,
+	log zerolog.Logger,
 	chain flow.ChainID,
 	blockHeight uint64,
 	client client.Client,
 	config AddressProviderConfig,
-	log zerolog.Logger,
 ) (*AddressProvider, error) {
 	ap := &AddressProvider{
 		log:          log.With().Str("component", "address_provider").Logger(),

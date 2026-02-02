@@ -24,6 +24,8 @@ import (
 
 	"github.com/onflow/cadence"
 	"github.com/onflow/flow-go-sdk"
+	"github.com/onflow/flow-go/module/component"
+	"github.com/onflow/flow-go/module/irrecoverable"
 	"github.com/rs/zerolog"
 
 	"github.com/onflow/flow-batch-scan/client"
@@ -51,65 +53,64 @@ func DefaultScriptRunnerConfig() ScriptRunnerConfig {
 }
 
 type ScriptRunner struct {
-	*ComponentBase
+	component.Component
 
 	ScriptRunnerConfig
 
-	client client.Client
+	client          client.Client
+	resultProcessor *ScriptResultProcessor
 
-	addressBatchChan <-chan AddressBatch
-	resultsChan      chan<- ProcessedAddressBatch
-
+	batchChan chan AddressBatch
 	limitChan chan struct{}
+	log       zerolog.Logger
 }
 
-var _ Component = (*ScriptRunner)(nil)
-
 func NewScriptRunner(
-	client client.Client,
-	addressBatchChan <-chan AddressBatch,
-	resultsChan chan<- ProcessedAddressBatch,
-	config ScriptRunnerConfig,
 	logger zerolog.Logger,
+	client client.Client,
+	resultProcessor *ScriptResultProcessor,
+	config ScriptRunnerConfig,
 ) *ScriptRunner {
 	r := &ScriptRunner{
-
 		ScriptRunnerConfig: config,
 
-		client:           client,
-		addressBatchChan: addressBatchChan,
-		resultsChan:      resultsChan,
+		client:          client,
+		resultProcessor: resultProcessor,
 
+		batchChan: make(chan AddressBatch, 10),
 		limitChan: make(chan struct{}, config.MaxConcurrentScripts),
+		log:       logger.With().Str("component", "script_runner").Logger(),
 	}
-	r.ComponentBase = NewComponentWithStart(
-		"script_runner",
-		r.start,
-		logger,
-	)
+
+	r.Component = component.NewComponentManagerBuilder().
+		AddWorker(r.processWorker).
+		Build()
 
 	return r
 }
 
-func (r *ScriptRunner) start(ctx context.Context) {
-	go func() {
-		for {
-			select {
-			case <-ctx.Done():
-				r.Finish(ctx.Err())
-				return
-			case input, ok := <-r.addressBatchChan:
-				if !ok {
-					r.Finish(nil)
-					return
-				}
-				r.handleBatch(ctx, input)
-			}
-		}
-	}()
+// Submit queues an address batch for script execution.
+func (r *ScriptRunner) Submit(batch AddressBatch) {
+	r.batchChan <- batch
 }
 
-func (r *ScriptRunner) handleBatch(ctx context.Context, input AddressBatch) {
+func (r *ScriptRunner) processWorker(ctx irrecoverable.SignalerContext, ready component.ReadyFunc) {
+	ready()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case input, ok := <-r.batchChan:
+			if !ok {
+				return
+			}
+			r.handleBatch(ctx, input)
+		}
+	}
+}
+
+func (r *ScriptRunner) handleBatch(ctx irrecoverable.SignalerContext, input AddressBatch) {
 	if !input.IsValid() {
 		return
 	}
@@ -125,19 +126,19 @@ func (r *ScriptRunner) handleBatch(ctx context.Context, input AddressBatch) {
 		result, err := r.executeScript(ctx, input)
 
 		if err == nil {
-			r.resultsChan <- ProcessedAddressBatch{
+			r.resultProcessor.Submit(ProcessedAddressBatch{
 				AddressBatch: input,
 				Result:       result,
-			}
+			})
 			return
 		}
 
 		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-			r.Finish(err)
+			ctx.Throw(err)
 			return
 		}
 
-		r.Logger.
+		r.log.
 			Warn().
 			Err(err).
 			Msg("failed to run script")
@@ -147,7 +148,7 @@ func (r *ScriptRunner) handleBatch(ctx context.Context, input AddressBatch) {
 		switch action := action.(type) {
 		case ScriptErrorActionRetry:
 			// retry the same batch
-			r.Logger.
+			r.log.
 				Info().
 				Msg("retrying")
 			go func() {
@@ -160,7 +161,7 @@ func (r *ScriptRunner) handleBatch(ctx context.Context, input AddressBatch) {
 			// and might also find any errors that are caused by
 			// a single account having problems
 			if len(input.Addresses) != 1 {
-				r.Logger.
+				r.log.
 					Info().
 					Int("addresses", len(input.Addresses)).
 					Msg("retrying by splitting")
@@ -171,19 +172,19 @@ func (r *ScriptRunner) handleBatch(ctx context.Context, input AddressBatch) {
 				}()
 				return
 			}
-			r.Logger.Info().Msg("cannot split, only one address left")
+			r.log.Info().Msg("cannot split, only one address left")
 			// error out
 		case ScriptErrorActionExclude:
 			// exclude the problematic addresses and retry
 			addresses := action.Addresses
-			r.Logger.
+			r.log.
 				Info().
 				Strs("addresses", func() []string {
-					r := make([]string, len(addresses))
+					s := make([]string, len(addresses))
 					for i, a := range addresses {
-						r[i] = a.String()
+						s[i] = a.String()
 					}
-					return r
+					return s
 				}()).
 				Msg("retrying by excluding")
 			for _, address := range addresses {
@@ -198,15 +199,15 @@ func (r *ScriptRunner) handleBatch(ctx context.Context, input AddressBatch) {
 		case ScriptErrorActionUnhandled:
 		// nothing, just continue and error out
 		default:
-			r.Logger.
+			r.log.
 				Warn().
 				Interface("action", action).
 				Msg("unknown script error action")
 		}
 
-		r.Logger.Warn().
+		r.log.Warn().
 			Msg("unable to handle error running script")
-		r.Finish(err)
+		ctx.Throw(err)
 	}()
 }
 
@@ -220,7 +221,7 @@ func (r *ScriptRunner) executeScript(
 	input AddressBatch,
 ) (result cadence.Value, err error) {
 	arguments := convertAddressesToArguments(input.Addresses)
-	r.Logger.
+	r.log.
 		Debug().
 		Uint64("block_height", input.BlockHeight).
 		Int("num_addresses", len(input.Addresses)).
