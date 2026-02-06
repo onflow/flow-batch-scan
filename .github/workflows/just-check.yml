@@ -13,7 +13,7 @@ permissions:
 
 jobs:
   check:
-    name: lint and licence check
+    name: Run checks (tidy, lint, license)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
