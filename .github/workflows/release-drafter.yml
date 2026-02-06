@@ -13,7 +13,8 @@ permissions:
   contents: read
 
 jobs:
-  update_release_draft:
+  update-release-draft:
+    name: Update release draft
     permissions:
       contents: write
       pull-requests: write
