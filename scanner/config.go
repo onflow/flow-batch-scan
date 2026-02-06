@@ -29,6 +29,7 @@ type Config struct {
 	ScriptRunnerConfig
 	FullScanRunnerConfig
 	IncrementalScannerConfig
+	BlockPublisherConfig
 
 	ScriptResultHandler ScriptResultHandler
 	Reporter            StatusReporter
@@ -44,6 +45,7 @@ func DefaultConfig() Config {
 		ScriptRunnerConfig:       DefaultScriptRunnerConfig(),
 		FullScanRunnerConfig:     DefaultFullScanRunnerConfig(),
 		IncrementalScannerConfig: DefaultIncrementalScannerConfig(),
+		BlockPublisherConfig:     DefaultBlockPublisherConfig(),
 		ScriptResultHandler:      NoOpScriptResultHandler{},
 		Reporter:                 NoOpStatusReporter{},
 		ContinuousScan:           false,
@@ -126,5 +128,12 @@ func (c Config) WithHandleScriptError(
 	value func(AddressBatch, error) ScriptErrorAction,
 ) Config {
 	c.HandleScriptError = value
+	return c
+}
+
+func (c Config) WithBlockPublisherConfig(
+	value BlockPublisherConfig,
+) Config {
+	c.BlockPublisherConfig = value
 	return c
 }

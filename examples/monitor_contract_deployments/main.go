@@ -19,20 +19,24 @@ package main
 import (
 	"context"
 	_ "embed"
+	"net/http"
+	"os"
+
 	"github.com/onflow/cadence"
-	"github.com/onflow/flow-batch-scan"
-	"github.com/onflow/flow-batch-scan/candidates"
-	"github.com/onflow/flow-batch-scan/client"
 	"github.com/onflow/flow-go-sdk"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
-	"os"
+
+	"github.com/onflow/flow-batch-scan/candidates"
+	"github.com/onflow/flow-batch-scan/client"
+	scanner "github.com/onflow/flow-batch-scan/scanner"
 )
 
 //go:embed get_contract_deployed.cdc
 var Script string
 
-// This is a very similar example to the contract_names example. Please see that one first.
+// This example demonstrates a continuous scan that monitors for contract deployments.
+// It shows how to set up custom metrics with a user-managed HTTP server.
 func main() {
 	log.Logger = log.
 		Output(zerolog.ConsoleWriter{Out: os.Stderr}).
@@ -63,14 +67,23 @@ func main() {
 		),
 	}
 
-	// Create a reporter.
-	// This will expose metrics on port :2112 /metrics
-	// The metrics will be the custom ones `monitor_contract_deployments_contracts_deployed`
-	// and some default ones from the `flow-batch-scan` package. See `scan.NewStatusReporter`
+	// Create a reporter that combines library metrics with custom app metrics.
+	// The reporter uses a custom Prometheus registry for metric isolation.
 	reporter := NewReporter(log.Logger)
 
+	// Start the metrics HTTP server.
+	// The library no longer starts its own server - you have full control over
+	// the port, path, TLS, authentication, etc.
+	http.Handle("/metrics", reporter.Handler())
+	go func() {
+		log.Info().Msg("Starting metrics server on :2112")
+		if err := http.ListenAndServe(":2112", nil); err != nil {
+			log.Fatal().Err(err).Msg("metrics server failed")
+		}
+	}()
+
 	// NewScriptResultHandler is different from the previous example
-	scriptResultHandler := NewScriptResultHandler(reporter, log.Logger)
+	scriptResultHandler := NewScriptResultHandler(log.Logger, reporter)
 
 	batchSize := 5000
 
@@ -81,9 +94,7 @@ func main() {
 		WithBatchSize(batchSize).
 		WithChainID(flow.Testnet).
 		WithLogger(log.Logger).
-		// This is new.
 		WithStatusReporter(reporter).
-		// This example uses a continuous scan, which means that it will keep scanning the chain for changes.
 		WithContinuousScan(true)
 
 	scan := scanner.NewScanner(

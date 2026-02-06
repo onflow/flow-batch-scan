@@ -52,17 +52,16 @@ var _ CandidateScanner = (*EventCandidatesScanner)(nil)
 func (s *EventCandidatesScanner) Scan(
 	ctx context.Context,
 	client client.Client,
-	blocks BlockRange,
+	blockHeight uint64,
 ) CandidatesResult {
 	l := s.logger.With().
-		Uint64("start", blocks.Start).
-		Uint64("end", blocks.End).
+		Uint64("block_height", blockHeight).
 		Logger()
 
 	blockEvents, err := client.GetEventsForHeightRange(ctx, flowgrpc.EventRangeQuery{
 		Type:        s.eventType,
-		StartHeight: blocks.Start,
-		EndHeight:   blocks.End,
+		StartHeight: blockHeight,
+		EndHeight:   blockHeight,
 	})
 	if err != nil {
 		l.Error().

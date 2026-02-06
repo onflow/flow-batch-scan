@@ -19,14 +19,16 @@ package main
 import (
 	"context"
 	_ "embed"
+	"os"
+
 	"github.com/onflow/cadence"
-	"github.com/onflow/flow-batch-scan"
-	"github.com/onflow/flow-batch-scan/candidates"
-	"github.com/onflow/flow-batch-scan/client"
 	"github.com/onflow/flow-go-sdk"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
-	"os"
+
+	"github.com/onflow/flow-batch-scan/candidates"
+	"github.com/onflow/flow-batch-scan/client"
+	scanner "github.com/onflow/flow-batch-scan/scanner"
 )
 
 // Script is the Cadence script to be executed on each batch of accounts.

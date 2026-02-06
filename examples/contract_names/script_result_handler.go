@@ -17,11 +17,13 @@
 package main
 
 import (
+	"sync"
+
 	"github.com/onflow/cadence"
-	fbs "github.com/onflow/flow-batch-scan"
 	"github.com/onflow/flow-go-sdk"
 	"github.com/rs/zerolog"
-	"sync"
+
+	fbs "github.com/onflow/flow-batch-scan/scanner"
 )
 
 type Record struct {
@@ -71,7 +73,6 @@ func (r *scriptResultHandler) Handle(batch fbs.ProcessedAddressBatch) error {
 
 	// for each address that has contracts
 	for address, contractNames := range addressContracts {
-
 		// If the record we have saved is from a newer block, don't update it.
 		// This happens if the account is scanned by the incremental scan, before it is scanned by the full scan.
 		if record, ok := r.deployedContracts[address]; ok && record.BlockHeight >= batch.BlockHeight {

@@ -26,8 +26,11 @@ header:
     - 'LICENSE'
     - 'NOTICE'
     - '.gitignore'
+    - '.envrc'
     - 'go.mod'
     - 'go.sum'
+    - 'flake.nix'
+    - 'flake.lock'
 
   comment: on-failure
 

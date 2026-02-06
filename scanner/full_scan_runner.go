@@ -17,61 +17,61 @@
 package scanner
 
 import (
-	"context"
 	_ "embed"
-	"fmt"
 	"sync"
 	"sync/atomic"
-	"time"
 
 	"github.com/onflow/flow-go-sdk"
+	"github.com/onflow/flow-go/module/component"
+	"github.com/onflow/flow-go/module/irrecoverable"
 	"github.com/rs/zerolog"
 
 	"github.com/onflow/flow-batch-scan/client"
 )
 
-const FullScanReferenceBlockSwitch = 10 * time.Second
+var _ component.Component = (*FullScan)(nil)
 
 type FullScanRunnerConfig struct {
 	AddressProviderConfig
-
 	ChainID flow.ChainID
 }
 
 func DefaultFullScanRunnerConfig() FullScanRunnerConfig {
 	return FullScanRunnerConfig{
 		AddressProviderConfig: DefaultAddressProviderConfig(),
-
-		ChainID: flow.Testnet,
+		ChainID:               flow.Testnet,
 	}
 }
 
 type FullScanRunner struct {
-	client           client.Client
-	addressBatchChan chan<- AddressBatch
-	batchSize        int
+	client       client.Client
+	scriptRunner *ScriptRunner
+	batchSize    int
 
 	FullScanRunnerConfig
 
-	logger   zerolog.Logger
-	reporter StatusReporter
+	reporter      StatusReporter
+	logger        zerolog.Logger
+	latestScanned *LatestIncrementallyScanned
 }
 
 func NewFullScanRunner(
+	logger zerolog.Logger,
 	client client.Client,
-	addressBatchChan chan<- AddressBatch,
+	scriptRunner *ScriptRunner,
 	batchSize int,
 	config FullScanRunnerConfig,
 	reporter StatusReporter,
-	logger zerolog.Logger,
+	latestScanned *LatestIncrementallyScanned,
 ) *FullScanRunner {
 	return &FullScanRunner{
 		client:               client,
-		addressBatchChan:     addressBatchChan,
+		scriptRunner:         scriptRunner,
 		batchSize:            batchSize,
 		FullScanRunnerConfig: config,
 		reporter:             reporter,
-		logger:               logger,
+		logger:               logger.With().Str("component", "full_scan_runner").Logger(),
+		latestScanned:        latestScanned,
 	}
 }
 
@@ -81,53 +81,44 @@ func (r *FullScanRunner) NewBatch(
 	batch := &FullScan{
 		runner: r,
 
-		blockHeight:              blockHeight,
-		lastReferenceBlockSwitch: time.Now(),
+		initialBlockHeight: blockHeight,
+		log:                r.logger.With().Uint64("initial_block_height", blockHeight).Logger(),
 	}
 
-	batch.ComponentBase = NewComponentWithStart(
-		fmt.Sprintf("full_scan_%d", blockHeight),
-		func(ctx context.Context) { go batch.run(ctx) },
-		r.logger,
-	)
+	batch.Component = component.NewComponentManagerBuilder().
+		AddWorker(batch.runWorker).
+		Build()
 
 	return batch
 }
 
 type FullScan struct {
-	*ComponentBase
+	component.Component
 
 	runner *FullScanRunner
 
-	blockHeight              uint64
-	lastReferenceBlockSwitch time.Time
+	// initialBlockHeight is the height used for AddressProvider initialization.
+	// The address provider needs a stable block to determine which addresses exist.
+	initialBlockHeight uint64
+
+	log zerolog.Logger
 }
 
-var _ Component = &FullScan{}
-
-func (r *FullScan) finish(wg *sync.WaitGroup, err error) {
-	go func() {
-		if wg != nil {
-			// wait for all outstanding batches to finish
-			wg.Wait()
-		}
-		r.ComponentBase.Finish(err)
-	}()
-}
-
-func (r *FullScan) run(ctx context.Context) {
+func (r *FullScan) runWorker(ctx irrecoverable.SignalerContext, ready component.ReadyFunc) {
 	ap, err := InitAddressProvider(
 		ctx,
+		r.log,
 		r.runner.ChainID,
-		r.blockHeight,
+		r.initialBlockHeight,
 		r.runner.client,
 		r.runner.AddressProviderConfig,
-		r.Logger,
 	)
 	if err != nil {
-		r.finish(nil, err)
+		ctx.Throw(err)
 		return
 	}
+
+	ready()
 
 	progressChan := make(chan uint64)
 	go r.reportProgress(uint64(ap.AddressesLen()), progressChan)
@@ -139,49 +130,47 @@ func (r *FullScan) run(ctx context.Context) {
 	}
 
 	addressChan := make(chan []flow.Address)
-	blockSwitchTimeChan := time.After(FullScanReferenceBlockSwitch)
-	go func() {
-		for {
-			select {
-			case <-ctx.Done():
-				cancelled.Store(true)
-				r.finish(batchWG, ctx.Err())
-				return
-			case <-blockSwitchTimeChan:
-				err := r.referenceBlockSwitch(ctx)
-				if err != nil {
-					r.finish(batchWG, err)
-					return
-				}
-				blockSwitchTimeChan = time.After(FullScanReferenceBlockSwitch)
-			case addresses, ok := <-addressChan:
-				if !ok {
-					r.finish(batchWG, nil)
-					return
-				}
-
-				batchWG.Add(1)
-				r.runner.addressBatchChan <- NewAddressBatch(
-					addresses,
-					r.blockHeight,
-					func() {
-						progressChan <- uint64(len(addresses))
-						batchWG.Done()
-					},
-					isBatchValid,
-				)
-			}
-		}
-	}()
 
 	go func() {
 		ap.GenerateAddressBatches(addressChan, r.runner.batchSize)
 		close(addressChan)
 	}()
+
+	for {
+		select {
+		case <-ctx.Done():
+			cancelled.Store(true)
+			batchWG.Wait()
+			return
+		case addresses, ok := <-addressChan:
+			if !ok {
+				batchWG.Wait()
+				return
+			}
+
+			batchWG.Add(1)
+
+			// Always use the latest incrementally scanned height for script execution
+			scriptHeight, scanned := r.runner.latestScanned.GetIfScanned()
+			if !scanned {
+				// Fallback to initial height if incremental scanner hasn't processed anything
+				scriptHeight = r.initialBlockHeight
+			}
+
+			r.runner.scriptRunner.Submit(NewAddressBatch(
+				addresses,
+				scriptHeight,
+				func() {
+					progressChan <- uint64(len(addresses))
+					batchWG.Done()
+				},
+				isBatchValid,
+			))
+		}
+	}
 }
 
-func (r *FullScan) reportProgress(addresses uint64, progressChan <-chan uint64) {
-	total := addresses
+func (r *FullScan) reportProgress(total uint64, progressChan <-chan uint64) {
 	current := uint64(0)
 	segment := uint64(0)
 	segments := uint64(10)
@@ -193,31 +182,11 @@ func (r *FullScan) reportProgress(addresses uint64, progressChan <-chan uint64) 
 		}
 
 		if current > (total/segments)*(segment+1) {
-			r.Logger.Info().
+			r.log.Info().
 				Uint64("current", current).
 				Uint64("total", total).
 				Msgf("Batch progress: %d%%", (100/segments)*(segment+1))
 			segment += 1
 		}
 	}
-}
-
-// referenceBlockSwitch switches the reference block height to the current block height,
-// to avoid "state commitment not found" errors.
-func (r *FullScan) referenceBlockSwitch(ctx context.Context) error {
-	currentBlockHeader, err := r.runner.client.GetLatestBlockHeader(ctx, true)
-	if err != nil {
-		r.Logger.
-			Error().
-			Err(err).
-			Msg("error getting latest block header")
-		return err
-	}
-
-	r.Logger.
-		Info().
-		Uint64("height", currentBlockHeader.Height).
-		Msg("switch to new block height")
-	r.blockHeight = currentBlockHeader.Height
-	return nil
 }
