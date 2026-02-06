@@ -5,7 +5,7 @@ go 1.25.7
 require (
 	github.com/grpc-ecosystem/go-grpc-prometheus v1.2.0
 	github.com/hashicorp/go-multierror v1.1.1
-	github.com/onflow/cadence v1.9.7
+	github.com/onflow/cadence v1.9.8
 	github.com/onflow/flow-go v0.45.2
 	github.com/onflow/flow-go-sdk v1.9.13
 	github.com/onflow/flow/protobuf/go/flow v0.4.19
