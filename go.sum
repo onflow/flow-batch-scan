@@ -219,8 +219,8 @@ github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 h1:C3w9PqII01/Oq
 github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822/go.mod h1:+n7T8mK8HuQTcFwEeznm/DIxMOiR9yIdICNftLE1DvQ=
 github.com/onflow/atree v0.12.1 h1:WfnhnhZJISiRa6trEz2lq49my326xjzS1JRaH8naXv0=
 github.com/onflow/atree v0.12.1/go.mod h1:qdZcfLQwPirHcNpLiK+2t3KAo+SAb9Si6TqurE6pykE=
-github.com/onflow/cadence v1.9.7 h1:FKSf8ZK0oRWU2pEws1jztyIEHUeyzGxixLB+LA/XfQU=
-github.com/onflow/cadence v1.9.7/go.mod h1:zvAa0UGFrj+lctflMzUtgmOsvEvtzWhyiXxAN73WSJY=
+github.com/onflow/cadence v1.9.8 h1:+15PSs/KQ0QTN32hWR11wOpCNEeYThnmrTfH72BkTvA=
+github.com/onflow/cadence v1.9.8/go.mod h1:zvAa0UGFrj+lctflMzUtgmOsvEvtzWhyiXxAN73WSJY=
 github.com/onflow/crypto v0.25.4 h1:R615PWPdSoA5RATNb/j3cYaloBIZlSXVNgS7BjwHiwM=
 github.com/onflow/crypto v0.25.4/go.mod h1:DlkW/1SPUvLHYvUcjWa9PkLIRgSBKR4EDc3i+ATQKW4=
 github.com/onflow/fixed-point v0.1.1 h1:j0jYZVO8VGyk1476alGudEg7XqCkeTVxb5ElRJRKS90=
@@ -231,8 +231,8 @@ github.com/onflow/flow-ft/lib/go/templates v1.0.1 h1:FDYKAiGowABtoMNusLuRCILIZDt
 github.com/onflow/flow-ft/lib/go/templates v1.0.1/go.mod h1:uQ8XFqmMK2jxyBSVrmyuwdWjTEb+6zGjRYotfDJ5pAE=
 github.com/onflow/flow-go v0.45.2 h1:7/IF2XIPvvjUk9Puqb4/S3EHz72JBfFnD60RXCuJwJg=
 github.com/onflow/flow-go v0.45.2/go.mod h1:dnH7EloXMyOLjVNcSQdSoSp1DNXsYjvO24pYKwGRzN4=
-github.com/onflow/flow-go-sdk v1.9.13 h1:HdWhsheDkaUokC6+7eefP+v6cMKfN3/yU4O8ddC1YGc=
-github.com/onflow/flow-go-sdk v1.9.13/go.mod h1:e5zVNLkpzYxVbusPUMvtrbsinwCyr1krPvxMD6dhW6M=
+github.com/onflow/flow-go-sdk v1.9.14 h1:YIBb8XDt5ZW/oUKLBvMLcV/UEjJ8ez0FSvwhiMKSMtk=
+github.com/onflow/flow-go-sdk v1.9.14/go.mod h1:Rn5UfGAwzme+OqPy54m0Q3pP0su19rBiQXT7PftoUOI=
 github.com/onflow/flow-nft/lib/go/templates v1.3.0 h1:uGIBy4GEY6Z9hKP7sm5nA5kwvbvLWW4nWx5NN9Wg0II=
 github.com/onflow/flow-nft/lib/go/templates v1.3.0/go.mod h1:gVbb5fElaOwKhV5UEUjM+JQTjlsguHg2jwRupfM/nng=
 github.com/onflow/flow/protobuf/go/flow v0.4.19 h1:oYQoHWT/Iu441tX908qhCy7pCWAtwDspVrWbFGoTH1o=
