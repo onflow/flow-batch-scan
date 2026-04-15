@@ -5,7 +5,7 @@ go 1.25.7
 require (
 	github.com/grpc-ecosystem/go-grpc-prometheus v1.2.0
 	github.com/hashicorp/go-multierror v1.1.1
-	github.com/onflow/cadence v1.9.8
+	github.com/onflow/cadence v1.10.2
 	github.com/onflow/flow-go v0.45.2
 	github.com/onflow/flow-go-sdk v1.9.14
 	github.com/onflow/flow/protobuf/go/flow v0.4.19
@@ -33,7 +33,7 @@ require (
 	github.com/dgryski/go-farm v0.0.0-20190423205320-6a90982ecee2 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/ethereum/go-ethereum v1.16.8 // indirect
-	github.com/fxamacker/cbor/v2 v2.9.1-0.20251019205732-39888e6be013 // indirect
+	github.com/fxamacker/cbor/v2 v2.9.2-0.20260331174317-a78e92ec038e // indirect
 	github.com/fxamacker/circlehash v0.3.0 // indirect
 	github.com/go-logr/logr v1.4.3 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
@@ -70,7 +70,7 @@ require (
 	github.com/multiformats/go-multistream v0.6.0 // indirect
 	github.com/multiformats/go-varint v0.0.7 // indirect
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
-	github.com/onflow/atree v0.12.1 // indirect
+	github.com/onflow/atree v0.16.0 // indirect
 	github.com/onflow/crypto v0.25.4 // indirect
 	github.com/onflow/fixed-point v0.1.1 // indirect
 	github.com/onflow/go-ethereum v1.13.4 // indirect
