@@ -12,3 +12,8 @@ updates:
     allow:
       - dependency-name: "github.com/onflow/flow-go-sdk"
       - dependency-name: "github.com/onflow/cadence"
+
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
