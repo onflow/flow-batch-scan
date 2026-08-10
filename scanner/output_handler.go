@@ -35,7 +35,7 @@ func NewScriptResultProcessor(
 	handler ScriptResultHandler,
 ) *ScriptResultProcessor {
 	r := &ScriptResultProcessor{
-		resultsChan: make(chan ProcessedAddressBatch, 10000),
+		resultsChan: make(chan ProcessedAddressBatch, 500),
 		handler:     handler,
 		log:         logger.With().Str("component", "script_result_processor").Logger(),
 	}
