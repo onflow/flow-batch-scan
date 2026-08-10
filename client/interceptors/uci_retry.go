@@ -53,6 +53,12 @@ func RetryUnaryClientInterceptor(
 			return true
 		}
 
+		// Retry when the connection drops (e.g. "connection timed out").
+		// This is transient: gRPC will reconnect on the next attempt.
+		if code == codes.Unavailable {
+			return true
+		}
+
 		if strings.Contains(err.Error(), "please retry for collection in finalized block") {
 			return true
 		}
