@@ -83,6 +83,11 @@ func (s *EventCandidatesScanner) Scan(
 					Msg("could not get candidate address from event")
 				return NewCandidatesResultError(err)
 			}
+			// The empty address is not a real account (e.g. TokensWithdrawn during
+			// the initial FLOW mint has no source); it can never be scanned.
+			if address == flow.EmptyAddress {
+				continue
+			}
 			addresses[address] = struct{}{}
 		}
 	}
