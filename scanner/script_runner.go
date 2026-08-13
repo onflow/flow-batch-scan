@@ -19,8 +19,10 @@ package scanner
 import (
 	"context"
 	"errors"
+	"fmt"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/onflow/cadence"
 	"github.com/onflow/flow-go-sdk"
@@ -36,19 +38,45 @@ import (
 // As long as they don't wait too long, this is not a problem.
 const DefaultScriptRunnerMaxConcurrentScripts = 20
 
+// DefaultPrunedStateFatalHeightGap is the default minimum number of blocks the
+// latest scanned height must be ahead of an unservable batch's height for the
+// batch to be rescheduled instead of treated as fatal.
+const DefaultPrunedStateFatalHeightGap = 10
+
 type ScriptRunnerConfig struct {
 	Script []byte
 
 	MaxConcurrentScripts int
 	HandleScriptError    func(AddressBatch, error) ScriptErrorAction
+
+	// LatestScannedHeight returns the latest block height known to have servable
+	// state (typically the latest incrementally scanned height).
+	// Before a batch is resubmitted (retry, split, or exclude), it is moved to
+	// this height if it is higher than the batch's current height, so retries
+	// never re-execute against state that may have been pruned.
+	// For ScriptErrorActionRetryAtLatestHeight, the resubmission is deferred
+	// until this advances past the batch's height (a new scanned block).
+	// May be nil: resubmissions then keep the batch's original height.
+	LatestScannedHeight func() (uint64, bool)
+
+	// PrunedStateFatalHeightGap is the minimum number of blocks the latest
+	// scanned height must be ahead of a batch's block height for
+	// ScriptErrorActionRetryAtLatestHeight to reschedule it. If the gap is
+	// smaller (or no height has been scanned yet), the error is fatal
+	// (ctx.Throw) instead: state that close to the tip should never be
+	// pruned, so waiting for a new block cannot be expected to help.
+	// Zero disables the fatal check.
+	// Only evaluated when LatestScannedHeight is non-nil.
+	PrunedStateFatalHeightGap uint64
 }
 
 func DefaultScriptRunnerConfig() ScriptRunnerConfig {
 	return ScriptRunnerConfig{
 		Script: []byte(defaultScript),
 
-		MaxConcurrentScripts: DefaultScriptRunnerMaxConcurrentScripts,
-		HandleScriptError:    DefaultHandleScriptError,
+		MaxConcurrentScripts:      DefaultScriptRunnerMaxConcurrentScripts,
+		HandleScriptError:         DefaultHandleScriptError,
+		PrunedStateFatalHeightGap: DefaultPrunedStateFatalHeightGap,
 	}
 }
 
@@ -152,7 +180,52 @@ func (r *ScriptRunner) handleBatch(ctx irrecoverable.SignalerContext, input Addr
 				Info().
 				Msg("retrying")
 			go func() {
-				r.handleBatch(ctx, input)
+				r.handleBatch(ctx, r.atLatestHeight(input))
+			}()
+			return
+		case ScriptErrorActionRetryAtLatestHeight:
+			// The batch's reference block is no longer servable (e.g. its state was
+			// pruned on the execution nodes). Splitting is pointless — every half
+			// would fail the same way — and retrying at the same height can never
+			// succeed, so resubmit the whole batch once the latest scanned height
+			// advances to a new block.
+			//
+			// Exception: if the batch's height is within PrunedStateFatalHeightGap
+			// of the latest scanned height, state that close to the tip should
+			// never be unservable, so the error is fatal instead of reschedulable.
+			if r.LatestScannedHeight != nil && r.PrunedStateFatalHeightGap > 0 {
+				if latest, ok := r.LatestScannedHeight(); !ok ||
+					latest < input.BlockHeight ||
+					latest-input.BlockHeight < r.PrunedStateFatalHeightGap {
+					ctx.Throw(fmt.Errorf(
+						"batch at height %d is not servable while latest scanned height is %d (fatal gap < %d): %w",
+						input.BlockHeight, latest, r.PrunedStateFatalHeightGap, err))
+					return
+				}
+			}
+			r.log.
+				Info().
+				Uint64("block_height", input.BlockHeight).
+				Msg("reference block not servable, waiting for a new scanned block to retry")
+			go func() {
+				ticker := time.NewTicker(newScannedHeightPollInterval)
+				defer ticker.Stop()
+				for {
+					select {
+					case <-ctx.Done():
+						return
+					case <-ticker.C:
+					}
+					if r.LatestScannedHeight == nil {
+						// no way to detect a new block: retry at the same height
+						r.handleBatch(ctx, input)
+						return
+					}
+					if h, ok := r.LatestScannedHeight(); ok && h > input.BlockHeight {
+						r.handleBatch(ctx, input.WithBlockHeight(h))
+						return
+					}
+				}
 			}()
 			return
 		case ScriptErrorActionSplit:
@@ -165,6 +238,7 @@ func (r *ScriptRunner) handleBatch(ctx irrecoverable.SignalerContext, input Addr
 					Info().
 					Int("addresses", len(input.Addresses)).
 					Msg("retrying by splitting")
+				input = r.atLatestHeight(input)
 				left, right := input.Split()
 				go func() {
 					r.handleBatch(ctx, left)
@@ -191,7 +265,7 @@ func (r *ScriptRunner) handleBatch(ctx irrecoverable.SignalerContext, input Addr
 				input.ExcludeAddress(address)
 			}
 			go func() {
-				r.handleBatch(ctx, input)
+				r.handleBatch(ctx, r.atLatestHeight(input))
 			}()
 			return
 		case ScriptErrorActionNone:
@@ -211,7 +285,29 @@ func (r *ScriptRunner) handleBatch(ctx irrecoverable.SignalerContext, input Addr
 	}()
 }
 
+// atLatestHeight moves the batch to the latest scanned height if that is
+// higher than the batch's current height, so a resubmitted batch never
+// re-executes against state that may have been pruned. Returns the batch
+// unchanged when LatestScannedHeight is nil or has no higher height.
+func (r *ScriptRunner) atLatestHeight(input AddressBatch) AddressBatch {
+	if r.LatestScannedHeight == nil {
+		return input
+	}
+	if h, ok := r.LatestScannedHeight(); ok && h > input.BlockHeight {
+		return input.WithBlockHeight(h)
+	}
+	return input
+}
+
 var accountFrozenRegex = regexp.MustCompile(`\[Error Code: 1204] account (?P<address>\w{16}) is frozen`)
+
+// newScannedHeightPollInterval is how often the script runner checks whether
+// the latest scanned height has advanced while waiting to resubmit a batch via
+// ScriptErrorActionRetryAtLatestHeight. There is no retry cap: a long-running
+// scan should ride out a multi-hour execution-node state-availability outage
+// rather than crash.
+// It is a variable so tests can stub it.
+var newScannedHeightPollInterval = time.Second
 
 // executeScript retries running the cadence script until we get a successful response back,
 // returning an array of Balance pairs, along with a boolean representing whether we can continue
@@ -254,6 +350,18 @@ var _ ScriptErrorAction = ScriptErrorActionRetry{}
 
 func (s ScriptErrorActionRetry) isScriptErrorAction() {}
 
+// ScriptErrorActionRetryAtLatestHeight resubmits the whole batch at the latest
+// scanned block height (see ScriptRunnerConfig.LatestScannedHeight), after a
+// backoff. Use it for errors where the batch's reference block can never
+// succeed again, e.g. "execution state is pruned".
+// If the batch's height is within ScriptRunnerConfig.PrunedStateFatalHeightGap
+// of the latest scanned height, the error is treated as fatal instead.
+type ScriptErrorActionRetryAtLatestHeight struct{}
+
+var _ ScriptErrorAction = ScriptErrorActionRetryAtLatestHeight{}
+
+func (s ScriptErrorActionRetryAtLatestHeight) isScriptErrorAction() {}
+
 type ScriptErrorActionNone struct{}
 
 var _ ScriptErrorAction = ScriptErrorActionNone{}
@@ -283,6 +391,12 @@ func (s ScriptErrorActionExclude) isScriptErrorAction() {}
 func DefaultHandleScriptError(_ AddressBatch, err error) ScriptErrorAction {
 	if errors.Is(err, context.Canceled) {
 		return ScriptErrorActionNone{}
+	}
+
+	// The execution nodes no longer serve state for the batch's reference
+	// block; splitting or retrying at the same height cannot succeed.
+	if strings.Contains(err.Error(), "execution state is pruned") {
+		return ScriptErrorActionRetryAtLatestHeight{}
 	}
 
 	if strings.Contains(err.Error(), "state commitment not found") {

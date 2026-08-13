@@ -83,6 +83,20 @@ func (b *AddressBatch) ExcludeAddress(address flow.Address) {
 	}
 }
 
+// WithBlockHeight returns a copy of the batch with a new block height.
+// The copy shares the done-tracking state with the original, so
+// DoneHandling still fires exactly once for the batch.
+func (b *AddressBatch) WithBlockHeight(blockHeight uint64) AddressBatch {
+	return AddressBatch{
+		Addresses:    b.Addresses,
+		BlockHeight:  blockHeight,
+		doneHandling: b.doneHandling,
+		isValid:      b.isValid,
+
+		doneOnce: b.doneOnce,
+	}
+}
+
 // Split splits the batch into two batches of equal size.
 func (b *AddressBatch) Split() (AddressBatch, AddressBatch) {
 	leftDone := make(chan struct{})

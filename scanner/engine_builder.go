@@ -60,11 +60,18 @@ func NewScannerEngineBuilder(cfg *engineConfig) *engine.BuilderBase[*engineConfi
 	// Component: ScriptRunner (depends on ResultProcessor)
 	var scriptRunner *ScriptRunner
 	builder.Component("script_runner", func(cfg *engineConfig) (module.ReadyDoneAware, error) {
+		// Share the latest-scanned height with the script runner, so batches whose
+		// reference block became unservable (e.g. "execution state is pruned") can
+		// be retried at a fresh height.
+		scriptRunnerConfig := cfg.Config.ScriptRunnerConfig
+		if scriptRunnerConfig.LatestScannedHeight == nil {
+			scriptRunnerConfig.LatestScannedHeight = cfg.LatestScanned.GetIfScanned
+		}
 		scriptRunner = NewScriptRunner(
 			cfg.Config.Logger,
 			cfg.Client,
 			resultProcessor,
-			cfg.Config.ScriptRunnerConfig,
+			scriptRunnerConfig,
 		)
 		return scriptRunner, nil
 	})
