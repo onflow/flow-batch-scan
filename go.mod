@@ -1,11 +1,11 @@
 module github.com/onflow/flow-batch-scan
 
-go 1.25.12
+go 1.26.0
 
 require (
 	github.com/grpc-ecosystem/go-grpc-prometheus v1.2.0
 	github.com/hashicorp/go-multierror v1.1.1
-	github.com/onflow/cadence v1.10.5
+	github.com/onflow/cadence v1.10.6
 	github.com/onflow/flow-go v0.50.0
 	github.com/onflow/flow-go-sdk v1.10.5
 	github.com/onflow/flow/protobuf/go/flow v0.4.20
